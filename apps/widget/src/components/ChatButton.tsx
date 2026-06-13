@@ -10,18 +10,34 @@ export function ChatButton({ onClick, color = "#6366f1" }: Props) {
     <div className="fixed bottom-5 right-5 z-[9999]">
       <motion.button
         onClick={onClick}
-        className="relative flex h-14 w-14 items-center justify-center rounded-full shadow-xl"
-        style={{ backgroundColor: color }}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 300, damping: 15 }}
+        className="group relative flex h-[60px] w-[60px] items-center justify-center rounded-full shadow-xl"
+        style={{
+          background: `linear-gradient(135deg, ${color}, ${color}dd)`,
+          boxShadow: `0 8px 32px -4px ${color}66`,
+        }}
+        whileHover={{ scale: 1.08, boxShadow: `0 12px 40px -4px ${color}88` }}
+        whileTap={{ scale: 0.94 }}
+        initial={{ scale: 0, rotate: -30 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 350, damping: 18 }}
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="26"
+          height="26"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="white"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="transition-transform group-hover:scale-110"
+        >
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
-        <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-green-400 border-2 border-neutral-950" />
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex h-4 w-4 rounded-full bg-emerald-400 ring-2 ring-white" />
+        </span>
       </motion.button>
     </div>
   );

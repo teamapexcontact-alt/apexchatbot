@@ -12,6 +12,15 @@ const categoryIcons: Record<string, string> = {
   support: "🛠️",
   features: "✨",
   contact: "📞",
+  refund: "🔄",
+  enrollment: "📝",
+  course: "📚",
+  certificate: "🎓",
+  schedule: "📅",
+  payment: "💳",
+  technical: "⚙️",
+  batch: "👥",
+  other: "❓",
 };
 
 export function CategoryCards({ faqs, onSelect }: Props) {
@@ -25,13 +34,17 @@ export function CategoryCards({ faqs, onSelect }: Props) {
         <motion.button
           key={cat}
           onClick={() => onSelect(cat)}
-          className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-3 text-left text-sm hover:bg-neutral-700 transition"
+          className="group flex items-center gap-2.5 rounded-xl border border-neutral-800 bg-neutral-900/60 px-3.5 py-3 text-left transition-all hover:border-neutral-700 hover:bg-neutral-800/60"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.08 }}
+          transition={{ delay: i * 0.06 }}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
         >
-          <span className="text-lg">{categoryIcons[cat] ?? "📄"}</span>
-          <p className="mt-1 font-medium capitalize text-neutral-200">{cat}</p>
+          <span className="text-base">{categoryIcons[cat] ?? "📄"}</span>
+          <p className="text-[13px] font-medium capitalize text-neutral-300 group-hover:text-neutral-100 transition-colors">
+            {cat}
+          </p>
         </motion.button>
       ))}
     </div>
