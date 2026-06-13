@@ -1,0 +1,42 @@
+import { NextRequest, NextResponse } from "next/server";
+import { firebaseConfig } from "@apex/config";
+import { initializeApp, getApps } from "firebase/app";
+import { getFirestore, collection, query, where, getDocs, writeBatch, doc, deleteDoc } from "firebase/firestore";
+
+function getServerDb() {
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  return getFirestore(app);
+}
+
+async function deleteCollection(db: ReturnType<typeof getFirestore>, collectionName: string, projectId: string) {
+  const snap = await getDocs(query(collection(db, collectionName), where("projectId", "==", projectId)));
+  if (snap.empty) return;
+  const batch = writeBatch(db);
+  snap.docs.forEach((d) => batch.delete(doc(db, collectionName, d.id)));
+  await batch.commit();
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 });
+
+    const db = getServerDb();
+
+    await Promise.all([
+      deleteCollection(db, "faqs", id),
+      deleteCollection(db, "documents", id),
+      deleteCollection(db, "document_chunks", id),
+      deleteCollection(db, "leads", id),
+      deleteCollection(db, "conversations", id),
+      deleteCollection(db, "analytics_events", id),
+    ]);
+
+    await deleteDoc(doc(db, "projects", id));
+
+    return NextResponse.json({ success: true, deletedProject: id });
+  } catch (err: any) {
+    console.error("Cascade delete error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
