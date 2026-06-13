@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, updateDoc } from "firebase/firestore";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,30 +36,33 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getServerDb();
-    const path = `documents/${Date.now()}_${file.name}`;
-    const bucket = firebaseConfig.storageBucket;
-    const raw = await file.arrayBuffer();
-    const body = new Uint8Array(raw);
 
-    const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(path)}&key=${firebaseConfig.apiKey}`;
-    const uploadRes = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: body as unknown as Blob,
-    });
-    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-    const fileUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+    const buf = await file.arrayBuffer();
+    const base64 = Buffer.from(buf).toString("base64");
+
+    const MAX_BASE64 = 850_000;
+    if (base64.length > MAX_BASE64) {
+      return NextResponse.json(
+        { error: `File too large (${(base64.length / 1024).toFixed(0)} KB base64). Max ~650 KB file.` },
+        { status: 413, headers: corsHeaders }
+      );
+    }
 
     const text = await file.text();
 
     const docRef = await addDoc(collection(db, "documents"), {
       fileName: file.name,
-      fileUrl,
+      fileType: file.type || "application/octet-stream",
+      fileData: base64,
+      fileSize: buf.byteLength,
       content: text.slice(0, 50000),
       projectId,
       tags: [],
       uploadedAt: serverTimestamp(),
     });
+
+    const downloadUrl = `/api/download/${docRef.id}`;
+    await updateDoc(doc(db, "documents", docRef.id), { fileUrl: downloadUrl });
 
     const chunks = chunkContent(text.slice(0, 50000));
     const batch = writeBatch(db);
@@ -75,7 +78,7 @@ export async function POST(req: NextRequest) {
     }
     await batch.commit();
 
-    return NextResponse.json({ success: true, fileUrl, id: docRef.id }, { headers: corsHeaders });
+    return NextResponse.json({ success: true, fileUrl: downloadUrl, id: docRef.id }, { headers: corsHeaders });
   } catch (err: any) {
     console.error("Upload error:", err);
     return NextResponse.json({ error: err.message }, { status: 500, headers: corsHeaders });
@@ -84,18 +87,8 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const { fileUrl, docId } = await req.json();
+    const { docId } = await req.json();
     const db = getServerDb();
-
-    const match = fileUrl?.match(/\/o\/(.+?)\?/);
-    if (match) {
-      const path = decodeURIComponent(match[1]);
-      const bucket = firebaseConfig.storageBucket;
-      await fetch(
-        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?key=${firebaseConfig.apiKey}`,
-        { method: "DELETE" }
-      ).catch(() => {});
-    }
 
     if (docId) await deleteDoc(doc(db, "documents", docId));
     return NextResponse.json({ success: true }, { headers: corsHeaders });

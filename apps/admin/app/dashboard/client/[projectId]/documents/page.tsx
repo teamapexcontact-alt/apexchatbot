@@ -32,7 +32,7 @@ export default function ClientDocumentsPage({ params }: { params: Promise<{ proj
 
   const remove = useCallback(async (d: any) => {
     if (!confirm(`Delete "${d.fileName}"?`)) return;
-    await fetch("/api/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileUrl: d.fileUrl, docId: d.id }) });
+    await fetch("/api/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docId: d.id }) });
   }, []);
 
   return (
@@ -50,7 +50,7 @@ export default function ClientDocumentsPage({ params }: { params: Promise<{ proj
               <div><p className="text-sm font-medium">{d.fileName}</p><p className="text-xs text-neutral-500">{d.uploadedAt?.toDate().toLocaleDateString()}</p></div>
             </div>
             <div className="flex items-center gap-3">
-              <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-indigo-400 hover:underline">View</a>
+              <a href={`/api/download/${d.id}`} target="_blank" rel="noreferrer" className="text-xs text-indigo-400 hover:underline">View</a>
               <button onClick={() => remove(d)} className="text-xs text-red-400 hover:underline">Delete</button>
             </div>
           </div>

@@ -43,7 +43,7 @@ export default function DocumentsPage() {
 
   const remove = useCallback(async (d: Doc) => {
     if (!confirm(`Delete "${d.fileName}"?`)) return;
-    await fetch("/api/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileUrl: d.fileUrl, docId: d.id }) });
+    await fetch("/api/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docId: d.id }) });
   }, []);
 
   const filtered = projectFilter ? docs.filter((d) => d.projectId === projectFilter) : docs;
@@ -79,7 +79,7 @@ export default function DocumentsPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-indigo-400 hover:underline">View</a>
+              <a href={`/api/download/${d.id}`} target="_blank" rel="noreferrer" className="text-xs text-indigo-400 hover:underline">View</a>
               <button onClick={() => remove(d)} className="text-xs text-red-400 hover:underline">Delete</button>
             </div>
           </div>
