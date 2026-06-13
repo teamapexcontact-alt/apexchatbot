@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc, deleteDoc } from "firebase/firestore";
 
 const corsHeaders = {
@@ -14,17 +13,15 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders });
 }
 
-function getServerApp() {
-  return getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+function getServerDb() {
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  return getFirestore(app);
 }
 
 function chunkContent(text: string, size = 500, overlap = 50): string[] {
   const chunks: string[] = [];
   let i = 0;
-  while (i < text.length) {
-    chunks.push(text.slice(i, i + size));
-    i += size - overlap;
-  }
+  while (i < text.length) { chunks.push(text.slice(i, i + size)); i += size - overlap; }
   return chunks.filter((c) => c.trim().length > 20);
 }
 
@@ -38,15 +35,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400, headers: corsHeaders });
     }
 
-    const app = getServerApp();
-    const storage = getStorage(app);
-    const db = getFirestore(app);
+    const db = getServerDb();
+    const path = `documents/${Date.now()}_${file.name}`;
+    const bucket = firebaseConfig.storageBucket;
+    const raw = await file.arrayBuffer();
+    const body = new Uint8Array(raw);
 
-    const fileName = `${Date.now()}_${file.name}`;
-    const storageRef = ref(storage, `documents/${fileName}`);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await uploadBytes(storageRef, buffer);
-    const fileUrl = await getDownloadURL(storageRef);
+    const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(path)}&key=${firebaseConfig.apiKey}`;
+    const uploadRes = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: body as unknown as Blob,
+    });
+    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+    const fileUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
 
     const text = await file.text();
 
@@ -62,8 +64,8 @@ export async function POST(req: NextRequest) {
     const chunks = chunkContent(text.slice(0, 50000));
     const batch = writeBatch(db);
     for (let i = 0; i < chunks.length; i++) {
-      const chunkRef = doc(collection(db, "document_chunks"));
-      batch.set(chunkRef, {
+      const ref = doc(collection(db, "document_chunks"));
+      batch.set(ref, {
         documentId: docRef.id,
         projectId,
         content: chunks[i],
@@ -83,13 +85,19 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { fileUrl, docId } = await req.json();
-    const app = getServerApp();
-    const storage = getStorage(app);
-    const db = getFirestore(app);
+    const db = getServerDb();
 
-    try { await deleteObject(ref(storage, fileUrl)); } catch {}
+    const match = fileUrl?.match(/\/o\/(.+?)\?/);
+    if (match) {
+      const path = decodeURIComponent(match[1]);
+      const bucket = firebaseConfig.storageBucket;
+      await fetch(
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?key=${firebaseConfig.apiKey}`,
+        { method: "DELETE" }
+      ).catch(() => {});
+    }
+
     if (docId) await deleteDoc(doc(db, "documents", docId));
-
     return NextResponse.json({ success: true }, { headers: corsHeaders });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500, headers: corsHeaders });
