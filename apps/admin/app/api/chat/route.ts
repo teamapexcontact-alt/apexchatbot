@@ -4,6 +4,20 @@ import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, query, where, getDocs, limit, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
 import Fuse from "fuse.js";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function corsResponse(body: any, status = 200) {
+  return NextResponse.json(body, { status, headers: corsHeaders });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 function getServerDb() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   return getFirestore(app);
@@ -107,7 +121,7 @@ export async function POST(req: NextRequest) {
   try {
     const { projectId, message, sessionId } = await req.json();
     if (!projectId || !message) {
-      return NextResponse.json({ error: "projectId and message required" }, { status: 400 });
+      return corsResponse({ error: "projectId and message required" }, 400);
     }
 
     const db = getServerDb();
@@ -115,7 +129,7 @@ export async function POST(req: NextRequest) {
 
     const orderInfo = await searchOrders(db, projectId, rawText);
     if (orderInfo) {
-      return NextResponse.json({ type: "order", answer: orderInfo, matched: true });
+      return corsResponse({ type: "order", answer: orderInfo, matched: true });
     }
 
     const cleaned = cleanQuery(rawText);
@@ -155,7 +169,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (bestFaq && bestScore < 0.4) {
-      return NextResponse.json({
+      return corsResponse({
         type: "faq",
         answer: bestFaq.answer,
         source: bestFaq.question,
@@ -177,7 +191,7 @@ export async function POST(req: NextRequest) {
       });
       const docResults = docFuse.search(searchText || cleaned);
       if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.4) {
-        return NextResponse.json({
+        return corsResponse({
           type: "document",
           answer: (docResults[0].item as any).content.slice(0, 500),
           source: "Document",
@@ -200,7 +214,7 @@ export async function POST(req: NextRequest) {
       ? `I'm not completely sure about that.\n${contactLinks.join("\n")}\nPlease ask another question or contact our team for help!`
       : "I'm not completely sure about that. Please contact our team for assistance.";
 
-    return NextResponse.json({
+    return corsResponse({
       type: "fallback",
       answer: fallback,
       matched: false,
@@ -208,6 +222,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Chat API error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return corsResponse({ error: err.message }, 500);
   }
 }
