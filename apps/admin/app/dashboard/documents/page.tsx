@@ -1,7 +1,7 @@
 "use client";
 
-import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, writeBatch } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { collection, onSnapshot, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import { ref, deleteObject } from "firebase/storage";
 import { getDb$, getStorage$ } from "@/lib/firebase-client";
 import { useEffect, useState, useCallback } from "react";
 
@@ -12,16 +12,6 @@ interface Doc {
   tags: string[];
   projectId: string;
   uploadedAt: { toDate: () => Date };
-}
-
-function chunkContent(text: string, size = 500, overlap = 50): string[] {
-  const chunks: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    chunks.push(text.slice(i, i + size));
-    i += size - overlap;
-  }
-  return chunks.filter((c) => c.trim().length > 20);
 }
 
 export default function DocumentsPage() {
@@ -41,34 +31,12 @@ export default function DocumentsPage() {
     if (!file) return;
     setUploading(true);
     try {
-      const storageRef = ref(getStorage$()!, `documents/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const fileUrl = await getDownloadURL(storageRef);
-      const text = await file.text();
-      const projectId = projectFilter || "default";
+      const form = new FormData();
+      form.append("file", file);
+      form.append("projectId", projectFilter || "default");
 
-      const docRef = await addDoc(collection(getDb$()!, "documents"), {
-        fileName: file.name,
-        fileUrl,
-        content: text.slice(0, 50000),
-        projectId,
-        tags: [],
-        uploadedAt: serverTimestamp(),
-      });
-
-      const chunks = chunkContent(text.slice(0, 50000));
-      const batch = writeBatch(getDb$()!);
-      for (let i = 0; i < chunks.length; i++) {
-        const chunkRef = doc(collection(getDb$()!, "document_chunks"));
-        batch.set(chunkRef, {
-          documentId: docRef.id,
-          projectId,
-          content: chunks[i],
-          index: i,
-          createdAt: serverTimestamp(),
-        });
-      }
-      await batch.commit();
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      if (!res.ok) throw new Error("Upload failed");
     } finally {
       setUploading(false);
     }
