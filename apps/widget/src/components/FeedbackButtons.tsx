@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase/client";
 import { useConfigStore } from "../store/configStore";
 
 interface Props {
@@ -11,18 +9,15 @@ interface Props {
 
 export function FeedbackButtons({ messageIndex, question, answer }: Props) {
   const [submitted, setSubmitted] = useState(false);
-  const projectId = useConfigStore((s) => s.project?.projectId ?? "default");
+  const { apiUrl, projectId } = useConfigStore();
 
   const sendFeedback = async (helpful: boolean) => {
     setSubmitted(true);
     try {
-      await addDoc(collection(db, "feedback"), {
-        projectId,
-        question,
-        answer,
-        helpful,
-        messageIndex,
-        createdAt: serverTimestamp(),
+      await fetch(`${apiUrl}/api/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, question, answer, helpful, messageIndex }),
       });
     } catch {}
   };

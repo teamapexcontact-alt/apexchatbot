@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase/client";
 import { useConfigStore } from "../store/configStore";
 
 interface Props {
@@ -13,21 +11,24 @@ export function LeadForm({ onClose, triggerSource }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const project = useConfigStore((s) => s.project);
+  const { apiUrl, projectId } = useConfigStore();
   const primaryColor = project?.primaryColor ?? "#6366f1";
 
   const submit = async () => {
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return;
     setSubmitting(true);
     try {
-      await addDoc(collection(db, "leads"), {
-        projectId: project?.projectId ?? "default",
-        name: form.name,
-        email: form.email,
-        phone: form.phone,
-        company: form.company || "",
-        source: triggerSource,
-        contacted: false,
-        createdAt: serverTimestamp(),
+      await fetch(`${apiUrl}/api/leads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          company: form.company,
+          source: triggerSource,
+        }),
       });
       setDone(true);
     } finally {
