@@ -1,8 +1,7 @@
 "use client";
 
-import { collection, onSnapshot, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { ref, deleteObject } from "firebase/storage";
-import { getDb$, getStorage$ } from "@/lib/firebase-client";
+import { collection, onSnapshot } from "firebase/firestore";
+import { getDb$ } from "@/lib/firebase-client";
 import { useEffect, useState, useCallback } from "react";
 
 interface Doc {
@@ -44,8 +43,7 @@ export default function DocumentsPage() {
 
   const remove = useCallback(async (d: Doc) => {
     if (!confirm(`Delete "${d.fileName}"?`)) return;
-    try { await deleteObject(ref(getStorage$()!, d.fileUrl)); } catch {}
-    await deleteDoc(doc(getDb$()!, "documents", d.id));
+    await fetch("/api/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileUrl: d.fileUrl, docId: d.id }) });
   }, []);
 
   const filtered = projectFilter ? docs.filter((d) => d.projectId === projectFilter) : docs;

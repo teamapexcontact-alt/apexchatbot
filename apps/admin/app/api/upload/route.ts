@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc, deleteDoc } from "firebase/firestore";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -76,6 +76,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, fileUrl, id: docRef.id }, { headers: corsHeaders });
   } catch (err: any) {
     console.error("Upload error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500, headers: corsHeaders });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { fileUrl, docId } = await req.json();
+    const app = getServerApp();
+    const storage = getStorage(app);
+    const db = getFirestore(app);
+
+    try { await deleteObject(ref(storage, fileUrl)); } catch {}
+    if (docId) await deleteDoc(doc(db, "documents", docId));
+
+    return NextResponse.json({ success: true }, { headers: corsHeaders });
+  } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500, headers: corsHeaders });
   }
 }
