@@ -1,0 +1,17 @@
+{
+  "name": "apex-chatbot",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:admin": "npm -w @apex/admin run dev",
+    "dev:widget": "npm -w @apex/widget run dev",
+    "build:admin": "npm -w @apex/admin run build",
+    "build:widget": "npm -w @apex/widget run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
