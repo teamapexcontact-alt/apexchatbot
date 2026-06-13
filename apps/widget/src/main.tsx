@@ -1,8 +1,6 @@
 import "./index.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { db, ensureAuth } from "./firebase/client";
 import { useConfigStore } from "./store/configStore";
 import { useChatStore } from "./store/chatStore";
 import { ChatButton } from "./components/ChatButton";
@@ -59,21 +57,29 @@ function Widget() {
 }
 
 async function init(projectId: string) {
-  await ensureAuth();
+  const store = useConfigStore.getState();
 
-  const projSnap = await getDoc(doc(db, "projects", projectId));
-  if (projSnap.exists()) {
-    useConfigStore.getState().setProject({
-      projectId: projSnap.id,
-      ...projSnap.data(),
-    } as Project);
+  if (store.apiUrl) {
+    try {
+      const [projRes, faqsRes] = await Promise.all([
+        fetch(`${store.apiUrl}/api/projects/${encodeURIComponent(projectId)}`),
+        fetch(`${store.apiUrl}/api/faqs?projectId=${encodeURIComponent(projectId)}`),
+      ]);
+
+      if (projRes.ok) {
+        const proj = await projRes.json();
+        store.setProject({ projectId: proj.id ?? proj.projectId, ...proj } as Project);
+      }
+
+      if (faqsRes.ok) {
+        const { faqs } = await faqsRes.json();
+        store.setFaqs(faqs as FAQ[]);
+      }
+    } catch {}
   }
 
-  const faqQ = query(collection(db, "faqs"), where("projectId", "==", projectId));
-  const faqSnap = await getDocs(faqQ);
-  const faqs: FAQ[] = faqSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FAQ);
-  useConfigStore.getState().setFaqs(faqs);
-  useConfigStore.getState().setLoading(false);
+  store.setProjectId(projectId);
+  store.setLoading(false);
 
   const root = document.createElement("div");
   root.id = "apex-chat-root";

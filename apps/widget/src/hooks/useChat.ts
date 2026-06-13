@@ -19,8 +19,8 @@ function buildFallback(project: any): string {
 }
 
 export function useChat() {
-  const { addMessage, setTyping, messages } = useChatStore();
-  const { faqs, project, apiUrl } = useConfigStore();
+  const { addMessage, setTyping } = useChatStore();
+  const { faqs, project, apiUrl, projectId } = useConfigStore();
 
   const sendMessage = async (text: string) => {
     const userMsg: Message = {
@@ -37,12 +37,12 @@ export function useChat() {
       let botReply = "";
       let matched = false;
 
-      if (apiUrl) {
+      if (apiUrl && projectId) {
         const res = await fetch(`${apiUrl}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            projectId: project?.projectId,
+            projectId,
             message: text,
             sessionId: getSessionId(),
           }),
@@ -84,5 +84,5 @@ export function useChat() {
     }
   };
 
-  return { sendMessage, messages };
+  return { sendMessage };
 }
