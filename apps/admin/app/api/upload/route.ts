@@ -30,6 +30,7 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
     try {
       const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
       const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
       let text = "";
       for (let i = 1; i <= doc.numPages; i++) {
