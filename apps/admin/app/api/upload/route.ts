@@ -29,14 +29,15 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   const lower = name.toLowerCase();
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
     try {
-      const pdfParse = require("pdf-parse");
-      const data = await pdfParse(Buffer.from(buf));
-      return data.text || "";
+      const { PDFParse } = await import("pdf-parse");
+      const parser = new PDFParse(new Uint8Array(buf));
+      const result = await parser.getText();
+      return result.text || "";
     } catch { return ""; }
   }
   if (mime.includes("wordprocessingml") || lower.endsWith(".docx")) {
     try {
-      const mammoth = require("mammoth");
+      const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer: Buffer.from(buf) });
       return result.value || "";
     } catch { return ""; }
