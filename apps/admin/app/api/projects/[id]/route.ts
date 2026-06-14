@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, query, where, getDocs, writeBatch, doc, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, query, where, getDocs, writeBatch, doc, deleteDoc, getDoc } from "firebase/firestore";
 
 function getServerDb() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
@@ -14,6 +14,19 @@ async function deleteCollection(db: ReturnType<typeof getFirestore>, collectionN
   const batch = writeBatch(db);
   snap.docs.forEach((d) => batch.delete(doc(db, collectionName, d.id)));
   await batch.commit();
+}
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 });
+    const db = getServerDb();
+    const snap = await getDoc(doc(db, "projects", id));
+    if (!snap.exists()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ projectId: snap.id, ...snap.data() });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
