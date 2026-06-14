@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
       ignoreLocation: true,
     });
 
-    const fuseResults = fuse.search(searchText || cleaned);
+    const fuseResults = fuse.search(cleaned);
     let bestFaq: any = null;
     let bestScore = 1;
 
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
         minMatchCharLength: 2,
         ignoreLocation: true,
       });
-      const docResults = docFuse.search(searchText || cleaned);
+      const docResults = docFuse.search(cleaned);
       if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.6) {
         return corsResponse({
           type: "document",
