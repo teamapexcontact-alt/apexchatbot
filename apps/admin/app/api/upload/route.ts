@@ -25,6 +25,29 @@ function chunkContent(text: string, size = 500, overlap = 50): string[] {
   return chunks.filter((c) => c.trim().length > 20);
 }
 
+async function extractText(buf: ArrayBuffer, name: string, mime: string): Promise<string> {
+  const lower = name.toLowerCase();
+  if (mime === "application/pdf" || lower.endsWith(".pdf")) {
+    try {
+      const pdfParse = require("pdf-parse");
+      const data = await pdfParse(Buffer.from(buf));
+      return data.text || "";
+    } catch { return ""; }
+  }
+  if (mime.includes("wordprocessingml") || lower.endsWith(".docx")) {
+    try {
+      const mammoth = require("mammoth");
+      const result = await mammoth.extractRawText({ buffer: Buffer.from(buf) });
+      return result.value || "";
+    } catch { return ""; }
+  }
+  try {
+    return new TextDecoder().decode(buf);
+  } catch {
+    return "";
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -48,7 +71,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const text = await file.text();
+    const text = await extractText(buf, file.name, file.type || "");
 
     const docRef = await addDoc(collection(db, "documents"), {
       fileName: file.name,
