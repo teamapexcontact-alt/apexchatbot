@@ -153,9 +153,9 @@ export async function POST(req: NextRequest) {
         { name: "question", weight: 0.7 },
         { name: "keywords", weight: 0.3 },
       ],
-      threshold: 0.4,
+      threshold: 0.6,
       includeScore: true,
-      minMatchCharLength: 3,
+      minMatchCharLength: 2,
       ignoreLocation: true,
     });
 
@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       bestScore = fuseResults[0].score ?? 1;
     }
 
-    if (bestFaq && bestScore < 0.4) {
+    if (bestFaq && bestScore < 0.6) {
       return corsResponse({
         type: "faq",
         answer: bestFaq.answer,
@@ -184,13 +184,13 @@ export async function POST(req: NextRequest) {
     if (allDocChunks.length > 0 && words.length > 0) {
       const docFuse = new Fuse(allDocChunks, {
         keys: ["content"],
-        threshold: 0.4,
+        threshold: 0.6,
         includeScore: true,
-        minMatchCharLength: 3,
+        minMatchCharLength: 2,
         ignoreLocation: true,
       });
       const docResults = docFuse.search(searchText || cleaned);
-      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.4) {
+      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.6) {
         return corsResponse({
           type: "document",
           answer: (docResults[0].item as any).content.slice(0, 500),

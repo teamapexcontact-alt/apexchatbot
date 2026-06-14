@@ -97,10 +97,12 @@ const projectId =
   new URLSearchParams(window.location.search).get("projectId") ??
   (window as any).__APEX_PROJECT_ID;
 
+const scriptSrc = scriptTag?.src || "";
 const apiUrl =
   scriptTag?.getAttribute("data-api-url") ??
   scriptTag?.dataset?.apiUrl ??
-  (window as any).__APEX_API_URL;
+  (window as any).__APEX_API_URL ??
+  (scriptSrc ? new URL(scriptSrc).origin : "https://apexchatbot-admin.vercel.app");
 
 if (apiUrl) {
   useConfigStore.getState().setApiUrl(apiUrl);
