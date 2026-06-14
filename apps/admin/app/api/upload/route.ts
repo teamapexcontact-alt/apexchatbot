@@ -29,10 +29,15 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   const lower = name.toLowerCase();
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
     try {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse(new Uint8Array(buf));
-      const result = await parser.getText();
-      return result.text || "";
+      const pdfjsLib = await import("pdfjs-dist");
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      let text = "";
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((item: any) => item.str).join(" ") + "\n";
+      }
+      return text.trim();
     } catch { return ""; }
   }
   if (mime.includes("wordprocessingml") || lower.endsWith(".docx")) {
