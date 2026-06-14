@@ -7,9 +7,8 @@ import { useState } from "react";
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: "📊" },
   { href: "/dashboard/projects", label: "Projects", icon: "📁" },
+  { href: "/dashboard/chat-test", label: "Chat Test", icon: "💬" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📈" },
-  { href: "/dashboard/seed", label: "Seed Data", icon: "🌱" },
-  { href: "/widget-preview.html", label: "Widget Preview", icon: "👁️" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
