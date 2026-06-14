@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       bestScore = fuseResults[0].score ?? 1;
     }
 
-    if (bestFaq && bestScore < 0.6) {
+    if (bestFaq && bestScore < 0.45) {
       return corsResponse({
         type: "faq",
         answer: bestFaq.answer,
@@ -179,18 +179,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const docSnap = await getDocs(query(collection(db, "document_chunks"), where("projectId", "==", projectId), limit(30)));
+    const docSnap = await getDocs(query(collection(db, "document_chunks"), where("projectId", "==", projectId), limit(100)));
     const allDocChunks = docSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (allDocChunks.length > 0 && words.length > 0) {
       const docFuse = new Fuse(allDocChunks, {
         keys: ["content"],
-        threshold: 0.6,
+        threshold: 0.45,
         includeScore: true,
         minMatchCharLength: 2,
         ignoreLocation: true,
       });
       const docResults = docFuse.search(cleaned);
-      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.6) {
+      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.45) {
         return corsResponse({
           type: "document",
           answer: (docResults[0].item as any).content.slice(0, 500),
