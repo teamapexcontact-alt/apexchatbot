@@ -1,243 +1,463 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, query, where, getDocs, limit, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
-import Fuse from "fuse.js";
+import { getFirestore, collection, doc, getDoc, getDocs, query, where, addDoc, serverTimestamp, setDoc, deleteDoc } from "firebase/firestore";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-function corsResponse(body: any, status = 200) {
-  return NextResponse.json(body, { status, headers: corsHeaders });
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders });
-}
-
-function getServerDb() {
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+function r(body: any, s = 200) { return NextResponse.json(body, { status: s, headers: CORS }); }
+export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: CORS }); }
+function db() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   return getFirestore(app);
 }
 
-const STOP_WORDS = new Set([
-  "what", "is", "the", "at", "how", "to", "a", "an", "and", "or", "for",
-  "of", "in", "on", "with", "my", "i", "do", "does", "can", "will",
-  "are", "was", "were", "be", "been", "being", "have", "has", "had",
-  "would", "should", "could", "may", "might", "shall", "its", "it's",
-  "that", "this", "these", "those", "am", "is", "not", "no", "but",
-  "if", "so", "about", "into", "through", "during", "before", "after",
-  "above", "below", "than", "then", "also", "just", "very", "too",
-]);
-
-const INTENT_KEYWORDS: Record<string, string[]> = {
-  pricing: ["price", "cost", "fees", "amount", "paid", "premium", "subscription", "plan", "billing", "charge", "payment", "free trial", "money", "dollar", "rupees", "pricing", "basic", "pro", "enterprise", "upgrade", "downgrade"],
-  course: ["course", "class", "lesson", "module", "curriculum", "syllabus", "learn", "study", "training", "program", "workshop", "tutorial", "topic", "content", "material"],
-  support: ["support", "help", "issue", "problem", "trouble", "bug", "error", "contact", "reach", "email", "phone", "call", "assist", "stuck", "broken", "not working", "fix"],
-  refund: ["refund", "return", "cancel", "money back", "guarantee", "cancellation", "cancel subscription", "cancel plan"],
-  enrollment: ["enroll", "register", "signup", "join", "register", "admission", "enrollment", "start", "begin", "getting started", "onboarding"],
-  features: ["feature", "capability", "function", "integration", "whatsapp", "slack", "api", "webhook", "analytics", "dashboard", "report"],
-  technical: ["technical", "requirement", "browser", "device", "compatible", "system", "install", "setup", "configuration", "configure"],
-  community: ["community", "group", "forum", "discord", "telegram", "member", "peer", "network"],
-  account: ["account", "password", "login", "sign in", "log in", "profile", "setting", "security", "verify", "verification"],
-  timing: ["hours", "timing", "open", "closed", "schedule", "availability", "time", "day", "weekend", "holiday", "business hours"],
-  contact: ["contact", "email", "phone", "call", "reach", "address", "location", "office"],
-};
-
-const SYNONYMS: Record<string, string[]> = {
-  price: ["cost", "fees", "amount", "charge", "pricing", "rate", "value"],
-  enroll: ["join", "register", "signup", "admission", "subscribe"],
-  duration: ["length", "time", "long", "period", "term"],
-  support: ["help", "assist", "aid", "guidance"],
-  course: ["class", "program", "training", "workshop", "tutorial"],
-  start: ["begin", "kickstart", "initiate", "commence"],
-  payment: ["pay", "billing", "charge", "transaction", "checkout"],
-  refund: ["return", "cancel", "reversal", "money back"],
-  login: ["signin", "sign in", "log in", "access", "authenticate"],
-  help: ["support", "assistance", "aid", "guide", "troubleshoot"],
-};
-
-function cleanQuery(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-}
-
-function removeStopWords(words: string[]): string[] {
-  return words.filter((w) => w.length > 2 && !STOP_WORDS.has(w));
-}
-
-function expandWithSynonyms(words: string[]): string[] {
-  const expanded = new Set(words);
-  for (const word of words) {
-    const syns = SYNONYMS[word];
-    if (syns) syns.forEach((s) => expanded.add(s));
-    for (const [key, vals] of Object.entries(SYNONYMS)) {
-      if (vals.includes(word)) expanded.add(key);
+// ── Levenshtein distance ──
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
     }
   }
-  return Array.from(expanded);
+  return dp[m][n];
 }
 
-function classifyIntent(words: string[]): string | null {
-  const scores: Record<string, number> = {};
-  for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
-    let score = 0;
-    for (const word of words) {
-      for (const kw of keywords) {
-        if (kw.includes(word) || word.includes(kw)) score++;
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// ── Intent Matcher ──
+interface FlowDoc {
+  id: string;
+  projectId: string;
+  name: string;
+  triggers: string[];
+  priority: number;
+  steps: StepDoc[];
+  enabled: boolean;
+}
+
+interface StepDoc {
+  type: "message" | "buttons" | "collect_input" | "condition" | "transfer" | "end";
+  message?: string;
+  buttons?: { label: string; action: "next" | "goto_flow"; flowId?: string }[];
+  collect?: { key: string; label: string; validation?: "text" | "email" | "phone" | "number" };
+  condition?: { variable: string; equals: string; gotoStep?: number; elseStep?: number };
+  gotoStep?: number;
+}
+
+async function loadFlows(projectId: string): Promise<FlowDoc[]> {
+  const snap = await getDocs(query(collection(db(), "flows"), where("projectId", "==", projectId), where("enabled", "==", true)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as FlowDoc));
+}
+
+interface MatchResult { flow: FlowDoc; method: "exact" | "contains" | "fuzzy"; score: number }
+
+function matchIntent(input: string, flows: FlowDoc[]): MatchResult | null {
+  const norm = normalize(input);
+  const words = norm.split(/\s+/);
+  const candidates: MatchResult[] = [];
+
+  for (const flow of flows) {
+    if (!flow.triggers || flow.triggers.length === 0) continue;
+    for (const trigger of flow.triggers) {
+      const tNorm = normalize(trigger);
+
+      // 1. Exact match
+      if (norm === tNorm) {
+        candidates.push({ flow, method: "exact", score: 0 });
+        continue;
+      }
+
+      // 2. Contains match
+      if (norm.includes(tNorm) || tNorm.includes(norm)) {
+        candidates.push({ flow, method: "contains", score: 1 });
+        continue;
+      }
+
+      // 3. Word-level contains
+      const tWords = tNorm.split(/\s+/);
+      if (tWords.length <= 3 && tWords.some((tw) => words.includes(tw))) {
+        candidates.push({ flow, method: "contains", score: 2 });
+        continue;
+      }
+
+      // 4. Fuzzy match (Levenshtein on each word)
+      for (const w of words) {
+        if (w.length < 3) continue;
+        for (const tw of tWords) {
+          if (tw.length < 3) continue;
+          const dist = levenshtein(w, tw);
+          const maxLen = Math.max(w.length, tw.length);
+          if (dist <= 1 || (dist / maxLen) < 0.3) {
+            candidates.push({ flow, method: "fuzzy", score: 3 });
+            break;
+          }
+        }
+        if (candidates.length > 0 && candidates[candidates.length - 1].flow.id === flow.id) break;
       }
     }
-    if (score > 0) scores[intent] = score;
   }
-  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-  return sorted.length > 0 ? sorted[0][0] : null;
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.score - b.score || a.flow.priority - b.flow.priority);
+  return candidates[0];
 }
 
-function formatAnswer(type: string, answer: string, source?: string): string {
-  const templates: Record<string, string[]> = {
-    faq: ["{{answer}}", "{{answer}} Is there anything else I can help with?", "Here's what I know:\n\n{{answer}}", "Great question! {{answer}}", "Sure! {{answer}}"],
-    document: ["Based on our documentation:\n\n{{answer}}", "According to our records:\n\n{{answer}}", "Here's what I found:\n\n{{answer}}", "Let me look that up for you:\n\n{{answer}}"],
-    order: ["Here are the details:\n\n{{answer}}", "I found your order:\n\n{{answer}}"],
-  };
-  const tpl = (templates[type] || [])[Math.floor(Math.random() * (templates[type]?.length || 1))] || "{{answer}}";
-  return tpl.replace("{{answer}}", answer);
+// ── FAQ fallback (existing FAQs as simple flows) ──
+interface FaqDoc { id: string; question: string; answer: string; category?: string }
+
+async function matchFaq(input: string, projectId: string): Promise<{ answer: string; question: string } | null> {
+  const norm = normalize(input);
+  const snap = await getDocs(query(collection(db(), "faqs"), where("projectId", "==", projectId)));
+  const all: FaqDoc[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FaqDoc));
+
+  // Exact match first
+  for (const faq of all) {
+    if (normalize(faq.question) === norm) return { answer: faq.answer, question: faq.question };
+  }
+
+  // Contains match
+  for (const faq of all) {
+    const qNorm = normalize(faq.question);
+    if (norm.includes(qNorm) || qNorm.includes(norm)) return { answer: faq.answer, question: faq.question };
+  }
+
+  // Word overlap
+  const words = norm.split(/\s+/).filter((w) => w.length > 2);
+  for (const faq of all) {
+    const qWords = normalize(faq.question).split(/\s+/).filter((w) => w.length > 2);
+    const overlap = words.filter((w) => qWords.includes(w)).length;
+    const needed = Math.min(words.length, qWords.length);
+    if (words.length > 0 && overlap >= Math.ceil(needed * 0.6)) return { answer: faq.answer, question: faq.question };
+  }
+
+  // Fuzzy match on first 3 words of question
+  for (const faq of all) {
+    const qWords = normalize(faq.question).split(/\s+/).filter((w) => w.length > 2).slice(0, 3);
+    const matchCount = words.filter((w) => qWords.some((qw) => levenshtein(w, qw) <= 1 || (Math.max(w.length, qw.length) > 0 && levenshtein(w, qw) / Math.max(w.length, qw.length) < 0.3))).length;
+    if (matchCount >= Math.min(2, qWords.length)) return { answer: faq.answer, question: faq.question };
+  }
+
+  return null;
 }
 
-async function searchOrders(db: ReturnType<typeof getFirestore>, projectId: string, text: string): Promise<{ answer: string } | null> {
-  const m = text.match(/(?:order|track|status)\s*:?\s*[#]?([A-Za-z0-9-]{3,})/i) || text.match(/\b([A-Z0-9]{5,})\b/);
-  if (!m) return null;
-  const snap = await getDocs(query(collection(db, "orders"), where("projectId", "==", projectId), where("orderId", "==", m[1])));
-  if (snap.empty) return null;
-  const o = snap.docs[0].data();
-  return { answer: `Order #${o.orderId}\nStatus: ${o.status}\nItem: ${o.item || "N/A"}\nAmount: ${o.amount || "N/A"}` };
+// ── Session Manager ──
+interface Session {
+  id: string;
+  projectId: string;
+  flowId: string | null;
+  stepIndex: number;
+  vars: Record<string, string>;
+  history: { role: "bot" | "user"; message: string; ts: number }[];
+  startedAt: number;
+  lastActivity: number;
+  completed: boolean;
 }
 
-async function logFailedQuery(db: ReturnType<typeof getFirestore>, projectId: string, query: string, intent: string | null) {
+const SESSION_TTL = 30 * 60 * 1000; // 30 min
+
+async function getSession(sessionId: string): Promise<Session | null> {
   try {
-    await addDoc(collection(db, "failed_queries"), {
-      projectId,
-      query,
-      intent,
-      timestamp: serverTimestamp(),
-    });
-  } catch {
-    // silent fail
-  }
+    const snap = await getDoc(doc(db(), "sessions", sessionId));
+    if (!snap.exists()) return null;
+    const s = snap.data() as Session;
+    if (Date.now() - s.lastActivity > SESSION_TTL) {
+      await deleteDoc(doc(db(), "sessions", sessionId));
+      return null;
+    }
+    return s;
+  } catch { return null; }
 }
 
+async function saveSession(s: Session) {
+  try {
+    s.lastActivity = Date.now();
+    await setDoc(doc(db(), "sessions", s.id), s);
+  } catch { /* silent */ }
+}
+
+function createSession(sessionId: string, projectId: string): Session {
+  return { id: sessionId, projectId, flowId: null, stepIndex: 0, vars: {}, history: [], startedAt: Date.now(), lastActivity: Date.now(), completed: false };
+}
+
+// ── Variable System ──
+function applyVars(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] || `{{${key}}}`);
+}
+
+// ── Lead Capture ──
+async function captureLead(session: Session, projectId: string) {
+  const name = session.vars["user_name"] || session.vars["name"] || "";
+  const email = session.vars["user_email"] || session.vars["email"] || "";
+  const phone = session.vars["user_phone"] || session.vars["phone"] || "";
+  if (!name && !email && !phone) return;
+  try {
+    await addDoc(collection(db(), "leads"), {
+      projectId,
+      name, email, phone,
+      sessionId: session.id,
+      vars: session.vars,
+      createdAt: serverTimestamp(),
+    });
+  } catch { /* silent */ }
+}
+
+// ── Flow Executor ──
+async function executeFlow(
+  flow: FlowDoc,
+  session: Session,
+  userInput: string
+): Promise<{ messages: Array<{ text: string; buttons?: { label: string; action: string; flowId?: string }[]; input?: { key: string; label: string; validation?: string }; transfer?: boolean }>; session: Session; done: boolean; lead?: boolean }> {
+  session.flowId = flow.id;
+  const messages: any[] = [];
+  let done = false;
+  let lead = false;
+
+  // Reset to start if not continuing a flow
+  if (!session.stepIndex || userInput === "__start") {
+    session.stepIndex = 0;
+  }
+
+  while (session.stepIndex < flow.steps.length) {
+    const step = flow.steps[session.stepIndex];
+
+    switch (step.type) {
+      case "message": {
+        const text = applyVars(step.message || "", session.vars);
+        messages.push({ text });
+        session.history.push({ role: "bot", message: text, ts: Date.now() });
+        if (step.gotoStep !== undefined) {
+          session.stepIndex = step.gotoStep;
+        } else {
+          session.stepIndex++;
+        }
+        break;
+      }
+
+      case "buttons": {
+        const text = applyVars(step.message || "", session.vars);
+        const btns = (step.buttons || []).map((b) => ({
+          label: b.label,
+          action: b.action,
+          flowId: b.action === "goto_flow" ? b.flowId : undefined,
+        }));
+        messages.push({ text, buttons: btns });
+        session.history.push({ role: "bot", message: text, ts: Date.now() });
+        // Wait for user to click a button — do NOT advance
+        done = true;
+        break;
+      }
+
+      case "collect_input": {
+        const text = applyVars(step.message || "", session.vars);
+        const inputDef = step.collect;
+        messages.push({
+          text,
+          input: { key: inputDef?.key || "response", label: inputDef?.label || "", validation: inputDef?.validation },
+        });
+        session.history.push({ role: "bot", message: text, ts: Date.now() });
+        // Wait for user to type — do NOT advance yet
+        done = true;
+        break;
+      }
+
+      case "condition": {
+        const cond = step.condition!;
+        const val = session.vars[cond.variable] || "";
+        if (val === cond.equals) {
+          session.stepIndex = cond.gotoStep ?? session.stepIndex + 1;
+        } else {
+          session.stepIndex = cond.elseStep ?? session.stepIndex + 1;
+        }
+        break;
+      }
+
+      case "transfer": {
+        const text = applyVars(step.message || "Let me connect you with our team.", session.vars);
+        messages.push({ text, transfer: true });
+        session.history.push({ role: "bot", message: text, ts: Date.now() });
+        lead = true;
+        session.completed = true;
+        done = true;
+        break;
+      }
+
+      case "end": {
+        const text = applyVars(step.message || "Thank you! Is there anything else I can help with?", session.vars);
+        messages.push({ text });
+        session.history.push({ role: "bot", message: text, ts: Date.now() });
+        lead = true;
+        session.completed = true;
+        done = true;
+        break;
+      }
+    }
+
+    if (done) break;
+  }
+
+  // If flow completed naturally, mark done
+  if (session.stepIndex >= flow.steps.length) {
+    session.completed = true;
+    done = true;
+    lead = true;
+  }
+
+  return { messages, session, done, lead };
+}
+
+// ── Handle collect input response ──
+function handleCollectInput(session: Session, input: string, step: StepDoc): string | null {
+  const key = step.collect?.key || "response";
+  const validation = step.collect?.validation;
+  const val = input.trim();
+
+  if (validation === "email") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return "Please enter a valid email address.";
+  } else if (validation === "phone") {
+    if (!/^[\d\s\+\-\(\)]{7,15}$/.test(val)) return "Please enter a valid phone number.";
+  } else if (validation === "number") {
+    if (isNaN(Number(val))) return "Please enter a valid number.";
+  }
+
+  session.vars[key] = val;
+  session.stepIndex++;
+  return null;
+}
+
+// ── Handle button click ──
+function handleButtonClick(session: Session, buttonLabel: string, flow: FlowDoc, allFlows: FlowDoc[]): { newFlow?: FlowDoc; resetStep?: boolean } {
+  const step = flow.steps[session.stepIndex];
+  if (!step || step.type !== "buttons") return { resetStep: true };
+
+  const btn = (step.buttons || []).find((b) => b.label === buttonLabel);
+  if (!btn) return { resetStep: true };
+
+  if (btn.action === "goto_flow" && btn.flowId) {
+    const target = allFlows.find((f) => f.id === btn.flowId);
+    if (target) {
+      session.flowId = target.id;
+      session.stepIndex = 0;
+      return { newFlow: target };
+    }
+  }
+
+  // "next" action or unknown — advance to next step
+  session.stepIndex++;
+  return { resetStep: true };
+}
+
+// ── POST /api/chat ──
 export async function POST(req: NextRequest) {
   try {
-    const { projectId, message, sessionId } = await req.json();
-    if (!projectId || !message) {
-      return corsResponse({ error: "projectId and message required" }, 400);
+    const { projectId, message, sessionId: sid, buttonLabel } = await req.json();
+    if (!projectId || !message) return r({ error: "projectId and message required" }, 400);
+
+    const sessionId = sid || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let s = await getSession(sessionId);
+    if (!s) s = createSession(sessionId, projectId);
+    s.projectId = projectId;
+
+    // Store user message
+    s.history.push({ role: "user", message, ts: Date.now() });
+
+    const allFlows = await loadFlows(projectId);
+    let activeFlow = s.flowId ? allFlows.find((f) => f.id === s.flowId) : null;
+
+    // ── Handle button click ──
+    if (buttonLabel && activeFlow) {
+      const result = handleButtonClick(s, buttonLabel, activeFlow, allFlows);
+      if (result.newFlow) activeFlow = result.newFlow;
     }
 
-    const db = getServerDb();
-    const rawText = message.trim();
-
-    const orderInfo = await searchOrders(db, projectId, rawText);
-    if (orderInfo) {
-      return corsResponse({ type: "order", answer: formatAnswer("order", orderInfo.answer), matched: true });
+    // ── Handle collect input response ──
+    if (activeFlow && activeFlow.steps[s.stepIndex]?.type === "collect_input") {
+      const step = activeFlow.steps[s.stepIndex];
+      const err = handleCollectInput(s, message, step);
+      if (err) {
+        await saveSession(s);
+        return r({ type: "error", answer: err, sessionId });
+      }
     }
 
-    const cleaned = cleanQuery(rawText);
-    let words = cleaned.split(/\s+/).filter(Boolean);
-    words = removeStopWords(words);
-    const expandedWords = expandWithSynonyms(words);
-    const intent = classifyIntent(expandedWords);
-    const searchText = expandedWords.join(" ");
-
-    const faqSnap = await getDocs(query(collection(db, "faqs"), where("projectId", "==", projectId)));
-    const allFaqs = faqSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    let candidateFaqs = allFaqs;
-    if (intent) {
-      const filtered = allFaqs.filter((f: any) => f.category === intent);
-      if (filtered.length > 0) candidateFaqs = filtered;
+    // ── If no active flow, match intent ──
+    if (!activeFlow) {
+      const match = matchIntent(message, allFlows);
+      if (match) {
+        activeFlow = match.flow;
+        s.flowId = activeFlow.id;
+        s.stepIndex = 0;
+      }
     }
 
-    const fuse = new Fuse(candidateFaqs, {
-      keys: [
-        { name: "question", weight: 0.7 },
-        { name: "keywords", weight: 0.3 },
-      ],
-      threshold: 0.55,
-      includeScore: true,
-      minMatchCharLength: 2,
-      ignoreLocation: true,
-    });
+    // ── Execute flow ──
+    if (activeFlow) {
+      const result = await executeFlow(activeFlow, s, message);
 
-    let bestFaq: any = null;
-    let bestScore = 1;
+      if (result.lead) {
+        await captureLead(result.session, projectId);
+      }
 
-    const fuseResults = fuse.search(cleaned);
-    if (fuseResults.length > 0) {
-      bestFaq = fuseResults[0].item;
-      bestScore = fuseResults[0].score ?? 1;
-    }
+      await saveSession(result.session);
 
-    if (bestFaq && bestScore < 0.5) {
-      return corsResponse({
-        type: "faq",
-        answer: formatAnswer("faq", bestFaq.answer),
-        source: bestFaq.question,
-        matched: true,
-        intent,
-        score: bestScore,
-      });
-    }
-
-    const docSnap = await getDocs(query(collection(db, "document_chunks"), where("projectId", "==", projectId), limit(100)));
-    const allDocChunks = docSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    if (allDocChunks.length > 0 && words.length > 0) {
-      const docFuse = new Fuse(allDocChunks, {
-        keys: ["content"],
-        threshold: 0.35,
-        includeScore: true,
-        minMatchCharLength: 2,
-        ignoreLocation: true,
-      });
-      const docResults = docFuse.search(searchText + " " + cleaned);
-      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.35) {
-        const chunk = docResults[0].item as any;
-        let excerpt = chunk.content.slice(0, 600);
-        const matchIdx = chunk.content.toLowerCase().indexOf(cleaned.slice(0, 30));
-        if (matchIdx > 100) excerpt = "... " + chunk.content.slice(Math.max(0, matchIdx - 80), matchIdx + 420) + " ...";
-        return corsResponse({
-          type: "document",
-          answer: formatAnswer("document", excerpt),
-          source: chunk.fileName || "Document",
+      if (result.messages.length > 0) {
+        const first = result.messages[0];
+        return r({
+          type: "flow",
+          answer: first.text,
+          buttons: first.buttons,
+          input: first.input,
+          transfer: first.transfer,
+          sessionId: result.session.id,
           matched: true,
-          score: docResults[0].score,
-          intent,
+          flowName: activeFlow.name,
+          flowId: activeFlow.id,
+          done: result.done,
         });
       }
     }
 
-    await logFailedQuery(db, projectId, rawText, intent);
-
-    const projSnap = await getDoc(doc(db, "projects", projectId));
-    const project = projSnap.data();
-    const contactLinks: string[] = [];
-    if (project?.whatsappLink) contactLinks.push(project.whatsappLink);
-    if (project?.ctaConfig?.bookCallUrl) contactLinks.push(project.ctaConfig.bookCallUrl);
-    if (project?.ctaConfig?.viewPricingUrl) contactLinks.push(project.ctaConfig.viewPricingUrl);
-
-    let fbAnswer = "I'm not completely sure about that. Please ask another question or contact our team for assistance.";
-    if (contactLinks.length > 0) {
-      fbAnswer = "I'm not completely sure about that.\n\n" + contactLinks.map((l) => (l.includes("whatsapp") ? "WhatsApp: " : l.includes("book") ? "Book a call: " : "Pricing: ") + l).join("\n") + "\n\nFeel free to ask something else!";
+    // ── No flow matched → try FAQ fallback ──
+    const faq = await matchFaq(message, projectId);
+    if (faq) {
+      await saveSession(s);
+      return r({
+        type: "faq",
+        answer: faq.answer,
+        source: faq.question,
+        sessionId: s.id,
+        matched: true,
+      });
     }
 
-    return corsResponse({
-      type: "fallback",
-      answer: fbAnswer,
-      matched: false,
-      intent,
-    });
+    // ── Fallback ──
+    await saveSession(s);
+
+    // Log failed query
+    try {
+      await addDoc(collection(db(), "failed_queries"), { projectId, query: message, timestamp: serverTimestamp() });
+    } catch { /* silent */ }
+
+    const proj = await getDoc(doc(db(), "projects", projectId));
+    const pData = proj.data();
+    const links: string[] = [];
+    if (pData?.whatsappLink) links.push("WhatsApp: " + pData.whatsappLink);
+    if (pData?.ctaConfig?.bookCallUrl) links.push("Book a call: " + pData.ctaConfig.bookCallUrl);
+    if (pData?.ctaConfig?.viewPricingUrl) links.push("Pricing: " + pData.ctaConfig.viewPricingUrl);
+
+    let fb = "I didn't quite understand that. Here are things I can help you with:";
+    if (allFlows.length > 0) {
+      const btns = allFlows.slice(0, 5).map((f) => ({ label: f.name, action: "goto_flow", flowId: f.id }));
+      return r({ type: "fallback", answer: fb, buttons: btns, sessionId: s.id, matched: false });
+    }
+
+    return r({ type: "fallback", answer: fb + "\n" + links.join("\n"), sessionId: s.id, matched: false });
   } catch (err: any) {
-    console.error("Chat API error:", err);
-    return corsResponse({ error: err.message }, 500);
+    console.error("Chat error:", err);
+    return r({ error: err.message }, 500);
   }
 }

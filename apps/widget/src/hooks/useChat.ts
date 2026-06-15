@@ -9,27 +9,16 @@ function getSessionId(): string {
   return sessionId;
 }
 
-function buildFallback(project: any): string {
-  const parts = ["I'm not completely sure about that."];
-  if (project?.whatsappLink) parts.push(`💬 WhatsApp: ${project.whatsappLink}`);
-  if (project?.ctaConfig?.bookCallUrl) parts.push(`📅 Book a call: ${project.ctaConfig.bookCallUrl}`);
-  if (project?.ctaConfig?.viewPricingUrl) parts.push(`💰 Pricing: ${project.ctaConfig.viewPricingUrl}`);
-  parts.push("Please ask another question or contact our team for help!");
-  return parts.join("\n");
-}
-
 export function useChat() {
-  const { addMessage, setTyping } = useChatStore();
+  const { addMessage, setTyping, setPendingButtons, setPendingInput } = useChatStore();
   const { faqs, project, apiUrl, projectId } = useConfigStore();
 
-  const sendMessage = async (text: string) => {
-    const userMsg: Message = {
-      role: "user",
-      content: text,
-      timestamp: new Date(),
-    };
+  const sendMessage = async (text: string, buttonLabel?: string) => {
+    const userMsg: Message = { role: "user", content: text, timestamp: new Date() };
     addMessage(userMsg);
     setTyping(true);
+    setPendingButtons(null);
+    setPendingInput(null);
 
     await new Promise((r) => setTimeout(r, 300 + Math.random() * 200));
 
@@ -38,23 +27,25 @@ export function useChat() {
       let matched = false;
 
       if (apiUrl && projectId) {
+        const body: any = { projectId, message: text, sessionId: getSessionId() };
+        if (buttonLabel) body.buttonLabel = buttonLabel;
+
         const res = await fetch(`${apiUrl}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            projectId,
-            message: text,
-            sessionId: getSessionId(),
-          }),
+          body: JSON.stringify(body),
         });
         if (res.ok) {
           const data = await res.json();
           matched = data.matched;
           botReply = data.answer || "";
+          if (data.sessionId) sessionId = data.sessionId;
+          if (data.buttons) setPendingButtons(data.buttons);
+          if (data.input) setPendingInput(data.input);
         }
       }
 
-      if (!botReply) {
+      if (!botReply && !buttonLabel) {
         const results = searchFaqs(faqs, text);
         if (results.length > 0 && results[0].score >= 0.3) {
           botReply = results[0].faq.answer;
@@ -63,23 +54,17 @@ export function useChat() {
       }
 
       if (!botReply) {
-        botReply = buildFallback(project);
+        botReply = "I didn't quite understand that.";
       }
 
       setTyping(false);
-      const botMsg: Message = {
-        role: "bot",
-        content: botReply,
-        timestamp: new Date(),
-      };
+      const botMsg: Message = { role: "bot", content: botReply, timestamp: new Date() };
       addMessage(botMsg);
     } catch {
       setTyping(false);
-      const botMsg: Message = {
-        role: "bot",
-        content: "Sorry, I'm having trouble connecting. Please try again.",
-        timestamp: new Date(),
-      };
+      setPendingButtons(null);
+      setPendingInput(null);
+      const botMsg: Message = { role: "bot", content: "Sorry, I'm having trouble connecting. Please try again.", timestamp: new Date() };
       addMessage(botMsg);
     }
   };
