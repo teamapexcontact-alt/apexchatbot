@@ -107,6 +107,62 @@ function matchIntent(input: string, flows: FlowDoc[]): MatchResult | null {
   return candidates[0];
 }
 
+// ── Document chunk search (intent matcher, not Fuse) ──
+async function matchDocChunks(input: string, projectId: string): Promise<string | null> {
+  const snap = await getDocs(query(collection(db(), "document_chunks"), where("projectId", "==", projectId)));
+  if (snap.empty) return null;
+  const chunks = snap.docs.map((d) => ({ id: d.id, content: d.data().content as string }));
+
+  const norm = normalize(input);
+  const words = norm.split(/\s+/).filter((w) => w.length > 2);
+
+  type Candidate = { content: string; overlap: number; fuzzyScore: number };
+  const candidates: Candidate[] = [];
+
+  for (const chunk of chunks) {
+    const cNorm = normalize(chunk.content);
+    const cWords = cNorm.split(/\s+/);
+
+    // Word overlap score
+    const overlap = words.filter((w) => cWords.includes(w)).length;
+
+    // Fuzzy score (Levenshtein on significant words)
+    let fuzzyScore = 0;
+    for (const w of words) {
+      for (const cw of cWords) {
+        if (cw.length < 3) continue;
+        const dist = levenshtein(w, cw);
+        const maxLen = Math.max(w.length, cw.length);
+        if (dist <= 1 || (dist / maxLen) < 0.3) { fuzzyScore++; break; }
+      }
+    }
+
+    if (overlap > 0 || fuzzyScore > 0) {
+      candidates.push({ content: chunk.content, overlap, fuzzyScore });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Sort by overlap desc, then fuzzyScore desc
+  candidates.sort((a, b) => b.overlap - a.overlap || b.fuzzyScore - a.fuzzyScore);
+  const best = candidates[0];
+
+  // Require at least 40% word overlap OR at least 1 fuzzy match
+  if (best.overlap < Math.ceil(words.length * 0.4) && best.fuzzyScore < 1) return null;
+
+  // Extract context around the matching portion
+  let excerpt = best.content.slice(0, 600);
+  const matchIdx = normalize(best.content).indexOf(norm.slice(0, 40));
+  if (matchIdx > 100) {
+    excerpt = "... " + best.content.slice(Math.max(0, matchIdx - 80), matchIdx + 420) + " ...";
+  } else if (matchIdx >= 0) {
+    excerpt = best.content.slice(Math.max(0, matchIdx - 30), matchIdx + 570);
+  }
+
+  return excerpt;
+}
+
 // ── FAQ fallback (existing FAQs as simple flows) ──
 interface FaqDoc { id: string; question: string; answer: string; category?: string }
 
@@ -417,6 +473,20 @@ export async function POST(req: NextRequest) {
           flowName: activeFlow.name,
           flowId: activeFlow.id,
           done: result.done,
+        });
+      }
+    }
+
+    // ── No flow matched → try document chunks ──
+    if (!activeFlow) {
+      const chunkAnswer = await matchDocChunks(message, projectId);
+      if (chunkAnswer) {
+        await saveSession(s);
+        return r({
+          type: "document",
+          answer: chunkAnswer,
+          sessionId: s.id,
+          matched: true,
         });
       }
     }
