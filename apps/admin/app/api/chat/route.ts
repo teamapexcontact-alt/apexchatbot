@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
       bestScore = fuseResults[0].score ?? 1;
     }
 
-    if (bestFaq && bestScore < 0.4) {
+    if (bestFaq && bestScore < 0.5) {
       return corsResponse({
         type: "faq",
         answer: formatAnswer("faq", bestFaq.answer),

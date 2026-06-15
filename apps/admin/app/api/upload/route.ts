@@ -62,7 +62,7 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   const lower = name.toLowerCase();
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
     try {
-      const pdfjsLib = await import("pdfjs-dist");
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjsLib.GlobalWorkerOptions.workerSrc = "";
       const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
       let text = "";
