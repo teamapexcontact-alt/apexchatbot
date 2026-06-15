@@ -95,13 +95,23 @@ function classifyIntent(words: string[]): string | null {
   return sorted.length > 0 ? sorted[0][0] : null;
 }
 
-async function searchOrders(db: ReturnType<typeof getFirestore>, projectId: string, text: string): Promise<string | null> {
+function formatAnswer(type: string, answer: string, source?: string): string {
+  const templates: Record<string, string[]> = {
+    faq: ["{{answer}}", "{{answer}} Is there anything else I can help with?", "Here's what I know:\n\n{{answer}}", "Great question! {{answer}}", "Sure! {{answer}}"],
+    document: ["Based on our documentation:\n\n{{answer}}", "According to our records:\n\n{{answer}}", "Here's what I found:\n\n{{answer}}", "Let me look that up for you:\n\n{{answer}}"],
+    order: ["Here are the details:\n\n{{answer}}", "I found your order:\n\n{{answer}}"],
+  };
+  const tpl = (templates[type] || [])[Math.floor(Math.random() * (templates[type]?.length || 1))] || "{{answer}}";
+  return tpl.replace("{{answer}}", answer);
+}
+
+async function searchOrders(db: ReturnType<typeof getFirestore>, projectId: string, text: string): Promise<{ answer: string } | null> {
   const m = text.match(/(?:order|track|status)\s*:?\s*[#]?([A-Za-z0-9-]{3,})/i) || text.match(/\b([A-Z0-9]{5,})\b/);
   if (!m) return null;
   const snap = await getDocs(query(collection(db, "orders"), where("projectId", "==", projectId), where("orderId", "==", m[1])));
   if (snap.empty) return null;
   const o = snap.docs[0].data();
-  return `Order #${o.orderId}\nStatus: ${o.status}\nItem: ${o.item || "N/A"}\nAmount: ${o.amount || "N/A"}`;
+  return { answer: `Order #${o.orderId}\nStatus: ${o.status}\nItem: ${o.item || "N/A"}\nAmount: ${o.amount || "N/A"}` };
 }
 
 async function logFailedQuery(db: ReturnType<typeof getFirestore>, projectId: string, query: string, intent: string | null) {
@@ -129,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     const orderInfo = await searchOrders(db, projectId, rawText);
     if (orderInfo) {
-      return corsResponse({ type: "order", answer: orderInfo, matched: true });
+      return corsResponse({ type: "order", answer: formatAnswer("order", orderInfo.answer), matched: true });
     }
 
     const cleaned = cleanQuery(rawText);
@@ -153,25 +163,25 @@ export async function POST(req: NextRequest) {
         { name: "question", weight: 0.7 },
         { name: "keywords", weight: 0.3 },
       ],
-      threshold: 0.6,
+      threshold: 0.55,
       includeScore: true,
       minMatchCharLength: 2,
       ignoreLocation: true,
     });
 
-    const fuseResults = fuse.search(cleaned);
     let bestFaq: any = null;
     let bestScore = 1;
 
+    const fuseResults = fuse.search(cleaned);
     if (fuseResults.length > 0) {
       bestFaq = fuseResults[0].item;
       bestScore = fuseResults[0].score ?? 1;
     }
 
-    if (bestFaq && bestScore < 0.45) {
+    if (bestFaq && bestScore < 0.4) {
       return corsResponse({
         type: "faq",
-        answer: bestFaq.answer,
+        answer: formatAnswer("faq", bestFaq.answer),
         source: bestFaq.question,
         matched: true,
         intent,
@@ -184,19 +194,24 @@ export async function POST(req: NextRequest) {
     if (allDocChunks.length > 0 && words.length > 0) {
       const docFuse = new Fuse(allDocChunks, {
         keys: ["content"],
-        threshold: 0.45,
+        threshold: 0.35,
         includeScore: true,
         minMatchCharLength: 2,
         ignoreLocation: true,
       });
-      const docResults = docFuse.search(cleaned);
-      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.45) {
+      const docResults = docFuse.search(searchText + " " + cleaned);
+      if (docResults.length > 0 && (docResults[0].score ?? 1) < 0.35) {
+        const chunk = docResults[0].item as any;
+        let excerpt = chunk.content.slice(0, 600);
+        const matchIdx = chunk.content.toLowerCase().indexOf(cleaned.slice(0, 30));
+        if (matchIdx > 100) excerpt = "... " + chunk.content.slice(Math.max(0, matchIdx - 80), matchIdx + 420) + " ...";
         return corsResponse({
           type: "document",
-          answer: (docResults[0].item as any).content.slice(0, 500),
-          source: "Document",
+          answer: formatAnswer("document", excerpt),
+          source: chunk.fileName || "Document",
           matched: true,
           score: docResults[0].score,
+          intent,
         });
       }
     }
@@ -206,17 +221,18 @@ export async function POST(req: NextRequest) {
     const projSnap = await getDoc(doc(db, "projects", projectId));
     const project = projSnap.data();
     const contactLinks: string[] = [];
-    if (project?.whatsappLink) contactLinks.push(`💬 WhatsApp: ${project.whatsappLink}`);
-    if (project?.ctaConfig?.bookCallUrl) contactLinks.push(`📅 Book a call: ${project.ctaConfig.bookCallUrl}`);
-    if (project?.ctaConfig?.viewPricingUrl) contactLinks.push(`💰 Pricing: ${project.ctaConfig.viewPricingUrl}`);
+    if (project?.whatsappLink) contactLinks.push(project.whatsappLink);
+    if (project?.ctaConfig?.bookCallUrl) contactLinks.push(project.ctaConfig.bookCallUrl);
+    if (project?.ctaConfig?.viewPricingUrl) contactLinks.push(project.ctaConfig.viewPricingUrl);
 
-    const fallback = contactLinks.length > 0
-      ? `I'm not completely sure about that.\n${contactLinks.join("\n")}\nPlease ask another question or contact our team for help!`
-      : "I'm not completely sure about that. Please contact our team for assistance.";
+    let fbAnswer = "I'm not completely sure about that. Please ask another question or contact our team for assistance.";
+    if (contactLinks.length > 0) {
+      fbAnswer = "I'm not completely sure about that.\n\n" + contactLinks.map((l) => (l.includes("whatsapp") ? "WhatsApp: " : l.includes("book") ? "Book a call: " : "Pricing: ") + l).join("\n") + "\n\nFeel free to ask something else!";
+    }
 
     return corsResponse({
       type: "fallback",
-      answer: fallback,
+      answer: fbAnswer,
       matched: false,
       intent,
     });
