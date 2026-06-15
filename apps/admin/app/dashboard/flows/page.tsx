@@ -38,6 +38,7 @@ function emptyStep(type: Step["type"]): Step {
 
 export default function FlowsPage() {
   const [flows, setFlows] = useState<Flow[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [projectFilter, setProjectFilter] = useState("");
   const [editing, setEditing] = useState<Flow | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,13 +46,15 @@ export default function FlowsPage() {
   useEffect(() => {
     const db = getDb$();
     if (!db) return;
-    const unsub = onSnapshot(collection(db, "flows"), (snap) => {
+    const unsubFlows = onSnapshot(collection(db, "flows"), (snap) => {
       setFlows(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Flow)));
     });
-    return unsub;
+    const unsubProjects = onSnapshot(collection(db, "projects"), (snap) => {
+      setProjects(snap.docs.map((d) => ({ id: d.id, name: d.data().projectName || d.id })));
+    });
+    return () => { unsubFlows(); unsubProjects(); };
   }, []);
 
-  const projects = [...new Set(flows.map((f) => f.projectId).filter(Boolean))];
   const filtered = projectFilter ? flows.filter((f) => f.projectId === projectFilter) : flows;
 
   const createFlow = async () => {
@@ -183,7 +186,7 @@ export default function FlowsPage() {
         <div className="flex gap-2">
           <select className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
             <option value="">All Projects</option>
-            {projects.map((p) => <option key={p} value={p}>{p}</option>)}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
           </select>
           <button onClick={createFlow} disabled={!projectFilter || saving} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50">
             + New Flow
