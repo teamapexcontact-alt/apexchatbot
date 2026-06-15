@@ -4,6 +4,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { getDb$ } from "@/lib/firebase-client";
 import { useEffect, useState, useCallback } from "react";
 import { use } from "react";
+import { extractTextClientSide } from "@/lib/extract-text-client";
 
 export default function ClientDocumentsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = use(params);
@@ -25,6 +26,9 @@ export default function ClientDocumentsPage({ params }: { params: Promise<{ proj
       const form = new FormData();
       form.append("file", file);
       form.append("projectId", projectId);
+      // Extract text client-side (browser pdf.js works reliably, Vercel serverless doesn't)
+      const text = await extractTextClientSide(file);
+      form.append("extractedText", text);
       const res = await fetch("/api/upload", { method: "POST", body: form });
       if (!res.ok) throw new Error("Upload failed");
     } finally { setUploading(false); }

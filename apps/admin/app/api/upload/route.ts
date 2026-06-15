@@ -17,7 +17,6 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
     try {
       const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
       const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
       let text = "";
       for (let i = 1; i <= doc.numPages; i++) {
@@ -26,16 +25,16 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
         text += content.items.map((item: any) => item.str).join(" ") + "\n";
       }
       return text.trim();
-    } catch { return ""; }
+    } catch (e) { console.error("Server PDF extraction failed:", e); return ""; }
   }
   if (mime.includes("wordprocessingml") || lower.endsWith(".docx")) {
     try {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer: Buffer.from(buf) });
       return result.value || "";
-    } catch { return ""; }
+    } catch (e) { console.error("Server DOCX extraction failed:", e); return ""; }
   }
-  try { return new TextDecoder().decode(buf); } catch { return ""; }
+  try { return new TextDecoder().decode(buf); } catch (e) { console.error("Server text extraction failed:", e); return ""; }
 }
 
 // ── Q&A extraction ──
@@ -108,7 +107,9 @@ export async function POST(req: NextRequest) {
     if (base64.length > 850_000) return r({ error: `File too large (${(base64.length / 1024).toFixed(0)} KB).` }, 413);
 
     const db = getDb();
-    const text = await extractText(buf, file.name, file.type || "");
+    // Use client-provided text if available (browser extraction is more reliable)
+    const providedText = form.get("extractedText") as string | null;
+    const text = providedText || await extractText(buf, file.name, file.type || "");
 
     // Store document
     const docRef = await addDoc(collection(db, "documents"), {
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
       await batch.commit();
     }
 
-    return r({ success: true, fileUrl: downloadUrl, id: docRef.id, qaCreated, chunksCreated });
+    return r({ success: true, fileUrl: downloadUrl, id: docRef.id, qaCreated, chunksCreated, textLength: text.length, usedProvided: !!providedText });
   } catch (err: any) {
     console.error("Upload error:", err);
     return r({ error: err.message }, 500);
