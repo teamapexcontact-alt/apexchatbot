@@ -11,7 +11,7 @@ const navItems = [
   { href: "/dashboard/synonyms", label: "Synonyms", icon: "📖" },
   { href: "/dashboard/faqs", label: "FAQs", icon: "❓" },
   { href: "/dashboard/failed-queries", label: "Missed Qs", icon: "🕵️" },
-  { href: "/dashboard/leads", label: "Leads", icon: "👤" },
+  { href: "/dashboard/leads", label: "CRM", icon: "👤" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📈" },
   { href: "/dashboard/chat-test", label: "Chat Test", icon: "💬" },
 ];

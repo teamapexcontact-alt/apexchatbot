@@ -37,61 +37,169 @@ async function extractText(buf: ArrayBuffer, name: string, mime: string): Promis
   try { return new TextDecoder().decode(buf); } catch (e) { console.error("Server text extraction failed:", e); return ""; }
 }
 
-// ── Q&A extraction ──
-const QWORDS = ["what", "how", "why", "do", "does", "can", "will", "is", "are", "was", "were", "when", "where", "who", "which", "could", "would", "should", "have", "has", "did", "doesn't", "don't", "can't", "won't", "isn't", "aren't"];
+// ── Advanced Document Structure Extraction ──
 
-function isQuestion(line: string): boolean {
-  const t = line.trim();
-  if (t.endsWith("?") && t.split(/\s+/).length <= 25) return true;
-  if (/^(q\.|q:|question\s*\d*[:.)])\s*/i.test(t)) return true;
-  if (/^\d+[.)]\s+/.test(t) && t.replace(/^\d+[.)]\s+/, "").split(/\s+/).length <= 20) {
-    const rest = t.replace(/^\d+[.)]\s+/, "").toLowerCase();
-    if (QWORDS.some((w) => rest.startsWith(w + " ") || rest.startsWith(w + "?"))) return true;
-  }
-  const lower = t.toLowerCase();
-  if (QWORDS.some((w) => lower.startsWith(w + " ") || lower.startsWith(w + "?"))) return true;
-  return false;
+interface DocumentSection {
+  heading: string;
+  level: number;
+  content: string;
+  items: string[];
 }
 
-function extractQAPairs(text: string): Array<{ question: string; answer: string }> {
-  const pairs: Array<{ question: string; answer: string }> = [];
-  const lines = text.split("\n");
-  let q = "", a = "";
+interface KnowledgeItem {
+  type: "faq" | "section" | "heading" | "list_item" | "table";
+  question?: string;
+  answer: string;
+  category?: string;
+  heading?: string;
+  keywords: string[];
+  order: number;
+}
 
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) {
-      if (q && a) { pairs.push({ question: q, answer: a.trim() }); q = ""; a = ""; }
+function detectHeadings(lines: string[]): { index: number; text: string; level: number }[] {
+  const headings: { index: number; text: string; level: number }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    // Markdown headings
+    const md = t.match(/^(#{1,6})\s+(.+)/);
+    if (md) { headings.push({ index: i, text: md[2].trim(), level: md[1].length }); continue; }
+    // ALL CAPS heading (2+ words, >60% uppercase)
+    const words = t.split(/\s+/);
+    const upper = words.filter((w) => w === w.toUpperCase() && w.length > 1).length;
+    if (words.length >= 2 && words.length <= 10 && upper >= words.length * 0.6 && t.length < 80) {
+      headings.push({ index: i, text: t, level: 1 }); continue;
+    }
+    // Title Case heading (short line, each word capitalized)
+    if (words.length >= 2 && words.length <= 8 && t.length < 60) {
+      const titled = words.filter((w) => /^[A-Z][a-z]/.test(w)).length;
+      if (titled >= words.length * 0.6 && !t.endsWith(".") && !t.endsWith("?")) {
+        headings.push({ index: i, text: t, level: 2 });
+      }
+    }
+  }
+  return headings;
+}
+
+function isTableRow(line: string): boolean {
+  return line.includes("|") && line.split("|").length >= 3;
+}
+
+function isListItem(line: string): boolean {
+  return /^\s*[-*•]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line);
+}
+
+function extractKnowledge(text: string): KnowledgeItem[] {
+  const items: KnowledgeItem[] = [];
+  const lines = text.split("\n");
+  const headings = detectHeadings(lines);
+  let currentHeading = "";
+  let order = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+
+    // Check if this line is a heading
+    const h = headings.find((h) => h.index === i);
+    if (h) { currentHeading = h.text; continue; }
+
+    // A. Detect FAQ-style lines (from headings)
+    if (currentHeading.toLowerCase().includes("faq") || currentHeading.toLowerCase().includes("question")) {
+      // Lines ending with ? under an FAQ heading
+      if (t.endsWith("?") && t.split(/\s+/).length <= 25) {
+        // Gather answer from following lines until next question or blank
+        let answer = "";
+        for (let j = i + 1; j < lines.length; j++) {
+          const nl = lines[j].trim();
+          if (!nl) break;
+          if (nl.endsWith("?") && nl.split(/\s+/).length <= 25) break;
+          if (detectHeadings([nl]).length > 0) break;
+          answer += (answer ? " " : "") + nl;
+        }
+        if (answer) {
+          items.push({
+            type: "faq", question: t, answer,
+            category: currentHeading, heading: currentHeading,
+            keywords: normalizeText(t).split(/\s+/).filter((w) => w.length > 2),
+            order: order++,
+          });
+        }
+      }
       continue;
     }
-    if (/^a[.:)]\s*/i.test(line)) { a += (a ? " " : "") + line.replace(/^a[.:)]\s*/i, "").trim(); continue; }
-    if (isQuestion(line)) {
-      if (q && a) pairs.push({ question: q, answer: a.trim() });
-      q = line.replace(/^(q\.|q:|question\s*\d*[:.)])\s*/i, "").replace(/^\d+[.)]\s+/, "").replace(/\s*\?*\s*$/, "").trim() + "?";
-      a = "";
-    } else if (q) { a += (a ? " " : "") + line; }
-  }
-  if (q && a) pairs.push({ question: q, answer: a.trim() });
-  return pairs;
-}
 
-// ── Paragraph/section chunking ──
-function chunkByParagraphs(text: string, maxLen = 800): string[] {
-  const chunks: string[] = [];
-  const paragraphs = text.split(/\n\s*\n/);
-  let current = "";
-  for (const p of paragraphs) {
-    const t = p.trim();
-    if (!t) continue;
-    if ((current + "\n\n" + t).length > maxLen && current.length > 0) {
-      chunks.push(current.trim());
-      current = t;
-    } else {
-      current += (current ? "\n\n" : "") + t;
+    // B. Table rows
+    if (isTableRow(t)) {
+      const cells = t.split("|").map((c) => c.trim()).filter(Boolean);
+      if (cells.length >= 2) {
+        items.push({
+          type: "table", answer: cells.join(" | "),
+          category: currentHeading || "table", heading: currentHeading,
+          keywords: cells.flatMap((c) => normalizeText(c).split(/\s+/).filter((w) => w.length > 2)),
+          order: order++,
+        });
+      }
+      continue;
+    }
+
+    // C. List items
+    if (isListItem(t)) {
+      const clean = t.replace(/^\s*[-*•]\s+/, "").replace(/^\s*\d+[.)]\s+/, "");
+      items.push({
+        type: "list_item", answer: clean,
+        category: currentHeading || "list", heading: currentHeading,
+        keywords: normalizeText(clean).split(/\s+/).filter((w) => w.length > 2),
+        order: order++,
+      });
+      continue;
+    }
+
+    // D. Lines ending with ? → treat as potential Q&A (from any section)
+    if (t.endsWith("?") && t.split(/\s+/).length <= 25) {
+      let answer = "";
+      for (let j = i + 1; j < lines.length; j++) {
+        const nl = lines[j].trim();
+        if (!nl) break;
+        if (nl.endsWith("?") && nl.split(/\s+/).length <= 25) break;
+        if (detectHeadings([nl]).length > 0) break;
+        if (isTableRow(nl)) break;
+        answer += (answer ? " " : "") + nl;
+      }
+      if (answer) {
+        items.push({
+          type: "faq", question: t, answer,
+          category: currentHeading || "general", heading: currentHeading,
+          keywords: normalizeText(t).split(/\s+/).filter((w) => w.length > 2),
+          order: order++,
+        });
+      }
+      continue;
+    }
+
+    // E. Remaining content → section knowledge
+    // Group paragraphs of content under a heading
+    if (t.length > 40 && currentHeading) {
+      let para = t;
+      for (let j = i + 1; j < lines.length; j++) {
+        const nl = lines[j].trim();
+        if (!nl) break;
+        if (nl.endsWith("?") && nl.split(/\s+/).length <= 25) break;
+        if (detectHeadings([nl]).length > 0) break;
+        if (isListItem(nl) || isTableRow(nl)) break;
+        para += " " + nl;
+        i = j;
+      }
+      items.push({
+        type: "section", answer: para,
+        category: currentHeading, heading: currentHeading,
+        keywords: normalizeText(para).split(/\s+/).filter((w) => w.length > 2),
+        order: order++,
+      });
     }
   }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.filter((c) => c.length > 30);
+
+  return items;
 }
 
 // ── POST ──
@@ -107,7 +215,6 @@ export async function POST(req: NextRequest) {
     if (base64.length > 850_000) return r({ error: `File too large (${(base64.length / 1024).toFixed(0)} KB).` }, 413);
 
     const db = getDb();
-    // Use client-provided text if available (browser extraction is more reliable)
     const providedText = form.get("extractedText") as string | null;
     const text = providedText || await extractText(buf, file.name, file.type || "");
 
@@ -121,49 +228,62 @@ export async function POST(req: NextRequest) {
     const downloadUrl = `/api/download/${docRef.id}`;
     await updateDoc(doc(db, "documents", docRef.id), { fileUrl: downloadUrl });
 
-    let qaCreated = 0;
+    // ── Extract knowledge from document ──
+    const knowledge = extractKnowledge(text);
+    let flowsCreated = 0;
     let chunksCreated = 0;
 
-    // ── Extract Q&A pairs → create flows ──
-    const qaPairs = extractQAPairs(text);
-    if (qaPairs.length > 0) {
+    // Batch create flows from FAQs
+    const faqItems = knowledge.filter((k) => k.type === "faq" && k.question);
+    if (faqItems.length > 0) {
       const batch = writeBatch(db);
-      for (const pair of qaPairs) {
-        const triggers = normalizeText(pair.question).split(/\s+/).filter((w) => w.length > 2).slice(0, 8);
+      for (const item of faqItems) {
         const ref = doc(collection(db, "flows"));
         batch.set(ref, {
           projectId,
-          name: pair.question.slice(0, 100),
-          triggers,
-          priority: 0,
-          steps: [{ type: "message", message: pair.answer }],
-          enabled: true,
+          name: item.question!.slice(0, 100),
+          triggers: item.keywords.slice(0, 8),
+          priority: 0, enabled: true,
+          steps: [{ type: "message", message: item.answer }],
+          category: item.category || "general",
           source: `document:${docRef.id}`,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
-        qaCreated++;
+        flowsCreated++;
       }
       await batch.commit();
     }
 
-    // ── Create document chunks for fallback ──
-    const paragraphs = chunkByParagraphs(text);
-    if (paragraphs.length > 0) {
+    // Batch create document chunks from all knowledge items (for fallback)
+    const chunkItems = knowledge.filter((k) => k.type !== "faq");
+    if (chunkItems.length > 0 || faqItems.length > 0) {
       const batch = writeBatch(db);
-      for (let i = 0; i < paragraphs.length; i++) {
+      const allForChunks = knowledge.map((k, i) => ({
+        content: k.question ? `Q: ${k.question}\nA: ${k.answer}` : k.answer,
+        category: k.category || "general",
+        heading: k.heading || "",
+        index: i,
+      }));
+      for (const item of allForChunks) {
         const ref = doc(collection(db, "document_chunks"));
         batch.set(ref, {
           projectId, documentId: docRef.id,
-          content: paragraphs[i].slice(0, 1000),
-          index: i, createdAt: serverTimestamp(),
+          content: item.content.slice(0, 1000),
+          category: item.category,
+          heading: item.heading,
+          index: item.index,
+          createdAt: serverTimestamp(),
         });
         chunksCreated++;
       }
       await batch.commit();
     }
 
-    return r({ success: true, fileUrl: downloadUrl, id: docRef.id, qaCreated, chunksCreated, textLength: text.length, usedProvided: !!providedText });
+    return r({
+      success: true, fileUrl: downloadUrl, id: docRef.id,
+      flowsCreated, chunksCreated, knowledgeItems: knowledge.length,
+      textLength: text.length, usedProvided: !!providedText,
+    });
   } catch (err: any) {
     console.error("Upload error:", err);
     return r({ error: err.message }, 500);
