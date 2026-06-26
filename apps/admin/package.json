@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@apex/config": "*",
+    "@apex/engine": "^0.1.0",
     "@apex/shared": "*",
     "firebase": "^11.0.0",
     "firebase-admin": "^13.0.0",
