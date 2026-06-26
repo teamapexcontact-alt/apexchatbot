@@ -8,13 +8,14 @@ import { MessageBubble } from "./MessageBubble";
 import { CategoryCards } from "./CategoryCards";
 
 export function ChatWindow() {
-  const { open, closeChat, isTyping, messages, pendingButtons, pendingInput, setPendingButtons, setPendingInput } = useChatStore();
-  const { project, faqs, loading } = useConfigStore();
-  const { sendMessage } = useChat();
+  const { open, closeChat, isTyping, isListening, messages, pendingButtons, pendingInput, setPendingButtons, setPendingInput } = useChatStore();
+  const { project, faqs, loading, theme } = useConfigStore();
+  const { sendMessage, sendVoiceInput, sendFile } = useChat();
   const { track } = useAnalytics();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
   useEffect(() => { if (open) track("chat_open"); if (open) setTimeout(() => inputRef.current?.focus(), 300); }, [open, track]);
@@ -43,7 +44,16 @@ export function ChatWindow() {
     if (catFaqs.length > 0) sendMessage(`Tell me about ${category}`);
   }, [faqs, sendMessage]);
 
-  const primaryColor = project?.primaryColor ?? "#6366f1";
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) sendFile(file);
+    if (fileRef.current) fileRef.current.value = "";
+  }, [sendFile]);
+
+  const hasVoiceSupport = typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const primaryColor = project?.primaryColor ?? theme.primaryColor;
+  const position = theme.position;
+  const borderRadius = theme.borderRadius === "full" ? "50px" : theme.borderRadius === "lg" ? "20px" : theme.borderRadius === "md" ? "16px" : "12px";
 
   return (
     <AnimatePresence>
@@ -53,7 +63,12 @@ export function ChatWindow() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.96 }}
           transition={{ type: "spring", stiffness: 340, damping: 28 }}
-          className="apex-chat-widget fixed bottom-20 right-5 z-[9998] flex h-[540px] w-[380px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-neutral-950 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6)] max-sm:inset-0 max-sm:h-dvh max-sm:w-full max-sm:rounded-none max-sm:bottom-0 max-sm:right-0"
+          className="apex-chat-widget fixed bottom-20 z-[9998] flex h-[540px] w-[380px] flex-col overflow-hidden border border-white/[0.08] bg-neutral-950 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6)] max-sm:inset-0 max-sm:h-dvh max-sm:w-full max-sm:rounded-none max-sm:bottom-0"
+          style={{
+            [position]: "20px",
+            borderRadius,
+            fontFamily: theme.fontFamily || undefined,
+          }}
         >
           <header className="relative shrink-0 overflow-hidden">
             <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)` }} />
@@ -170,7 +185,19 @@ export function ChatWindow() {
           {/* Input — hidden when collect input is active */}
           {!pendingInput && (
             <div className="border-t border-white/[0.06] bg-neutral-950/80 backdrop-blur-md p-3.5 shrink-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                {/* File Upload */}
+                <input ref={fileRef} type="file" className="hidden" onChange={handleFileChange} />
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-neutral-500 transition-all hover:bg-white/10 hover:text-neutral-300"
+                  title="Attach file"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+
                 <input
                   ref={inputRef}
                   className="flex-1 rounded-2xl border border-neutral-800 bg-neutral-900/80 px-4 py-3 text-sm text-neutral-100 placeholder-neutral-500 outline-none transition-all focus:border-[var(--apex-accent)] focus:ring-2 focus:ring-[var(--apex-accent)]/20"
@@ -181,15 +208,34 @@ export function ChatWindow() {
                   onKeyDown={(e) => e.key === "Enter" && handleSend()}
                   disabled={!!pendingButtons}
                 />
+
+                {/* Voice Input */}
+                {hasVoiceSupport && (
+                  <motion.button
+                    onClick={sendVoiceInput}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all"
+                    style={{ backgroundColor: isListening ? "#ef4444" : "transparent", color: isListening ? "white" : "#888" }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.92 }}
+                    title="Voice input"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="22" />
+                    </svg>
+                  </motion.button>
+                )}
+
                 <motion.button
                   onClick={handleSend}
                   disabled={!input.trim() || !!pendingButtons}
-                  className="flex h-11 w-11 items-center justify-center rounded-2xl text-white transition-all disabled:opacity-30 disabled:scale-95 shrink-0"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-white transition-all disabled:opacity-30 disabled:scale-95"
                   style={{ backgroundColor: primaryColor }}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.92 }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4 20-7z" />
                   </svg>
                 </motion.button>

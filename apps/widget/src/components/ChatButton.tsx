@@ -5,9 +5,15 @@ interface Props {
   color?: string;
 }
 
-export function ChatButton({ onClick, color = "#6366f1" }: Props) {
+import { useConfigStore } from "../store/configStore";
+
+export function ChatButton({ onClick, color }: Props) {
+  const theme = useConfigStore((s) => s.theme);
+  const c = color || theme.primaryColor;
+  const pos = theme.position;
+
   return (
-    <div className="fixed bottom-5 right-5 z-[9999]">
+    <div className="fixed bottom-5 z-[9999]" style={{ [pos]: "20px" }}>
       <motion.button
         onClick={onClick}
         className="group relative flex h-[60px] w-[60px] items-center justify-center rounded-full shadow-xl"

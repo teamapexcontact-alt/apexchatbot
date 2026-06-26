@@ -17,6 +17,7 @@ interface ChatState {
   open: boolean;
   messages: Message[];
   isTyping: boolean;
+  isListening: boolean;
   pendingButtons: PendingButton[] | null;
   pendingInput: PendingInput | null;
   toggle: () => void;
@@ -24,6 +25,7 @@ interface ChatState {
   closeChat: () => void;
   addMessage: (msg: Message) => void;
   setTyping: (v: boolean) => void;
+  setListening: (v: boolean) => void;
   setPendingButtons: (v: PendingButton[] | null) => void;
   setPendingInput: (v: PendingInput | null) => void;
   clear: () => void;
@@ -33,6 +35,7 @@ export const useChatStore = create<ChatState>((set) => ({
   open: false,
   messages: [],
   isTyping: false,
+  isListening: false,
   pendingButtons: null,
   pendingInput: null,
   toggle: () => set((s) => ({ open: !s.open })),
@@ -40,6 +43,7 @@ export const useChatStore = create<ChatState>((set) => ({
   closeChat: () => set({ open: false }),
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   setTyping: (isTyping) => set({ isTyping }),
+  setListening: (isListening) => set({ isListening }),
   setPendingButtons: (v) => set({ pendingButtons: v }),
   setPendingInput: (v) => set({ pendingInput: v }),
   clear: () => set({ messages: [], pendingButtons: null, pendingInput: null }),
