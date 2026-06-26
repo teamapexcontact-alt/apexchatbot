@@ -29,6 +29,7 @@ export default function ClientSettingsPage({ params }: { params: Promise<{ proje
       whatsappLink: project.whatsappLink,
       logoUrl: project.logoUrl,
       ctaConfig: project.ctaConfig,
+      allowedDomains: project.allowedDomains,
       updatedAt: serverTimestamp(),
     });
     setSaving(false);
@@ -67,6 +68,11 @@ export default function ClientSettingsPage({ params }: { params: Promise<{ proje
         <div>
           <label className="block text-sm text-neutral-400 mb-1">WhatsApp Link</label>
           <input className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="https://wa.me/..." value={project.whatsappLink || ""} onChange={(e) => setProject({ ...project, whatsappLink: e.target.value })} />
+        </div>
+        <div className="border-t border-neutral-800 pt-4">
+          <h3 className="text-sm font-medium mb-3">Domain Restriction</h3>
+          <p className="text-xs text-neutral-500 mb-2">Leave empty to allow all domains. One domain per line (e.g., mywebsite.com, *.mysite.com).</p>
+          <textarea className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-indigo-500" rows={3} placeholder="mywebsite.com&#10;*.mysite.com" value={(project.allowedDomains || []).join("\n")} onChange={(e) => setProject({ ...project, allowedDomains: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} />
         </div>
         <div className="border-t border-neutral-800 pt-4">
           <h3 className="text-sm font-medium mb-3">CTA Buttons</h3>

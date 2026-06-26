@@ -6,6 +6,8 @@ export { SessionManager, SESSION_TTL, applyVars } from "./session-manager";
 export type { SessionStore } from "./session-manager";
 export { executeFlow, handleCollectInput, handleButtonClick, captureLead } from "./workflow-executor";
 export { normalize, levenshtein, simpleStem, preprocess, DEFAULT_STOP_WORDS, DEFAULT_SCORING_CONFIG } from "./nlp";
+export { checkRateLimit, checkDomain, checkRole, createAuditEntry } from "./security";
+export type { AuditEntry, Role } from "./security";
 export type * from "./types";
 
 import { IntentMatcher } from "./intent-matcher";

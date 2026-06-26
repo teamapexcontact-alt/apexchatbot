@@ -2,6 +2,7 @@ export interface Project {
   projectId: string;
   projectName: string;
   domains: string[];
+  allowedDomains: string[];
   primaryColor: string;
   logoUrl: string;
   welcomeMessage: string;

@@ -13,6 +13,8 @@ const navItems = [
   { href: "/dashboard/failed-queries", label: "Missed Qs", icon: "🕵️" },
   { href: "/dashboard/leads", label: "CRM", icon: "👤" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📈" },
+  { href: "/dashboard/audit-logs", label: "Audit Logs", icon: "📋" },
+  { href: "/dashboard/roles", label: "Roles", icon: "🔐" },
   { href: "/dashboard/chat-test", label: "Chat Test", icon: "💬" },
 ];
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, query, where, getDocs, orderBy, limit, deleteDoc, doc, addDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { logAudit } from "@/lib/audit-logger";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 function r(body: any, s = 200) { return NextResponse.json(body, { status: s, headers: CORS }); }
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
     batch.delete(doc(db(), "failed_queries", failedQueryId));
     await batch.commit();
 
+    logAudit({ action: "convert_failed_query", resource: "failed_query", resourceId: failedQueryId, projectId, details: `Converted to ${type}: "${question}"` });
     return r({ success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }
@@ -68,6 +70,7 @@ export async function DELETE(req: NextRequest) {
     const { id } = await req.json();
     if (!id) return r({ error: "id required" }, 400);
     await deleteDoc(doc(db(), "failed_queries", id));
+    logAudit({ action: "delete_failed_query", resource: "failed_query", resourceId: id, details: "Failed query dismissed" });
     return r({ success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }

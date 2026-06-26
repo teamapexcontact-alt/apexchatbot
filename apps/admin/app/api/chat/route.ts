@@ -7,6 +7,8 @@ import {
   normalize, levenshtein,
   KnowledgeRetriever,
   synonymManager,
+  checkRateLimit,
+  checkDomain,
 } from "@apex/engine";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
@@ -122,6 +124,23 @@ export async function POST(req: NextRequest) {
     const { projectId, message, sessionId: sid, buttonLabel } = await req.json();
     if (!projectId || !message) return r({ error: "projectId and message required" }, 400);
 
+    // ── Domain restriction check ──
+    const projDoc = await getDoc(doc(db(), "projects", projectId));
+    const pData = projDoc.data();
+    const allowedDomains: string[] = pData?.allowedDomains || [];
+    if (allowedDomains.length > 0) {
+      const origin = req.headers.get("origin") || req.headers.get("referer") || "";
+      if (!checkDomain(origin, allowedDomains)) {
+        return r({ error: "Domain not allowed" }, 403);
+      }
+    }
+
+    // ── Rate limiting (per project) ──
+    const rl = checkRateLimit(`chat:${projectId}`, 100, 60000);
+    if (!rl.allowed) {
+      return r({ error: "Rate limit exceeded. Try again later." }, 429);
+    }
+
     // ── Use ConversationEngine for flow matching & execution ──
     const allFlows = await loadFlows(projectId);
     const result = await engine.processMessage(projectId, message, sid, buttonLabel, allFlows);
@@ -165,8 +184,6 @@ export async function POST(req: NextRequest) {
       });
     } catch { /* silent */ }
 
-    const proj = await getDoc(doc(db(), "projects", projectId));
-    const pData = proj.data();
     const links: string[] = [];
     if (pData?.whatsappLink) links.push("WhatsApp: " + pData.whatsappLink);
     if (pData?.ctaConfig?.bookCallUrl) links.push("Book a call: " + pData.ctaConfig.bookCallUrl);

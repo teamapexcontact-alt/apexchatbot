@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp } from "firebase/firestore";
+import { logAudit } from "@/lib/audit-logger";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 function r(body: any, s = 200) { return NextResponse.json(body, { status: s, headers: CORS }); }
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    logAudit({ action: "create_flow", resource: "flow", resourceId: ref.id, projectId, details: `Flow "${name}" created` });
     return r({ id: ref.id, success: true });
   } catch (err: any) {
     return r({ error: err.message }, 500);
@@ -55,6 +57,7 @@ export async function PUT(req: NextRequest) {
     if (enabled !== undefined) data.enabled = enabled;
 
     await updateDoc(doc(db(), "flows", id), data);
+    logAudit({ action: "update_flow", resource: "flow", resourceId: id, details: `Flow ${id} updated` });
     return r({ success: true });
   } catch (err: any) {
     return r({ error: err.message }, 500);
@@ -66,6 +69,7 @@ export async function DELETE(req: NextRequest) {
     const { id } = await req.json();
     if (!id) return r({ error: "id required" }, 400);
     await deleteDoc(doc(db(), "flows", id));
+    logAudit({ action: "delete_flow", resource: "flow", resourceId: id, details: `Flow ${id} deleted` });
     return r({ success: true });
   } catch (err: any) {
     return r({ error: err.message }, 500);

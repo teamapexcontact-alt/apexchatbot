@@ -8,16 +8,36 @@ import {
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
-const adminApp =
-  getAdminApps().length === 0
-    ? initializeAdminApp({
-        credential: cert(
-          process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-            ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-            : {}
-        ),
-      })
-    : getAdminApps()[0];
+function getAdmin() {
+  const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!key) return null;
 
-export const adminAuth = getAdminAuth(adminApp);
-export const adminDb = getAdminFirestore(adminApp);
+  try {
+    const app =
+      getAdminApps().length === 0
+        ? initializeAdminApp({
+            credential: cert(JSON.parse(key)),
+          })
+        : getAdminApps()[0];
+
+    return {
+      auth: getAdminAuth(app),
+      db: getAdminFirestore(app),
+    };
+  } catch (err) {
+    console.error("Firebase Admin init error:", err);
+    return null;
+  }
+}
+
+let admin: ReturnType<typeof getAdmin> | null = null;
+
+export function getAdminAuth$() {
+  if (!admin) admin = getAdmin();
+  return admin?.auth || null;
+}
+
+export function getAdminDb$() {
+  if (!admin) admin = getAdmin();
+  return admin?.db || null;
+}

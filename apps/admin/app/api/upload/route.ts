@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, updateDoc, query, where, getDocs } from "firebase/firestore";
+import { logAudit } from "@/lib/audit-logger";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 function r(body: any, s = 200) { return NextResponse.json(body, { status: s, headers: CORS }); }
@@ -279,6 +280,8 @@ export async function POST(req: NextRequest) {
       await batch.commit();
     }
 
+    logAudit({ action: "upload_document", resource: "document", resourceId: docRef.id, projectId, details: `"${file.name}" uploaded (${file.size}B, ${flowsCreated} flows, ${chunksCreated} chunks)` });
+
     return r({
       success: true, fileUrl: downloadUrl, id: docRef.id,
       flowsCreated, chunksCreated, knowledgeItems: knowledge.length,
@@ -307,6 +310,7 @@ export async function DELETE(req: NextRequest) {
     chunkSnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(doc(db, "documents", docId));
     await batch.commit();
+    logAudit({ action: "delete_document", resource: "document", resourceId: docId, details: `Document ${docId} deleted` });
     return r({ success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }

@@ -3,6 +3,7 @@ import { firebaseConfig } from "@apex/config";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
 import { synonymManager } from "@apex/engine";
+import { logAudit } from "@/lib/audit-logger";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 function r(body: any, s = 200) { return NextResponse.json(body, { status: s, headers: CORS }); }
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
       updatedAt: serverTimestamp(),
     });
     synonymManager.invalidateCache(body.projectId);
+    logAudit({ action: "synonym_updated", resource: "synonym", resourceId: ref.id, projectId: body.projectId, details: `Synonym for "${body.word}" created` });
     return r({ id: ref.id, success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }
@@ -48,6 +50,7 @@ export async function PUT(req: NextRequest) {
       updatedAt: serverTimestamp(),
     });
     synonymManager.invalidateCache(body.projectId);
+    logAudit({ action: "synonym_updated", resource: "synonym", resourceId: body.id, projectId: body.projectId, details: `Synonym for "${body.word}" updated` });
     return r({ success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }
@@ -58,6 +61,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) return r({ error: "id required" }, 400);
     await deleteDoc(doc(db(), "synonyms", id));
     if (projectId) synonymManager.invalidateCache(projectId);
+    logAudit({ action: "synonym_updated", resource: "synonym", resourceId: id, projectId, details: "Synonym deleted" });
     return r({ success: true });
   } catch (err: any) { return r({ error: err.message }, 500); }
 }
